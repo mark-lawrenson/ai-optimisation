@@ -17,8 +17,8 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Run Assistant
 
-3. Run program
 ```bash
 python graph.py
 ```
@@ -124,6 +124,7 @@ And again
 
 ```
 User: make c4 in t4
+Assistant:
 Class Timetable:
 +-----------+-------+-------+-------+-------+
 | Time Slot | Room1 | Room2 | Room3 | Room4 |
@@ -149,4 +150,46 @@ This updated timetable still satisfies all constraints:
 - Only one time slot per class.
 - No teacher conflicts.
 - No room conflicts.
+```
+
+
+## Run Model
+
+To simply test the model using raw data you can update `model.py` 
+
+```python
+data = {
+    "Classes": ["C1", "C2", "C3"],
+    "TimeSlots": ["T1", "T2", "T3"],
+    "Teachers": ["Teacher1", "Teacher2"],
+    "Classrooms": ["Room1", "Room2"],
+    "Teachers": ["Teacher1", "Teacher2"],
+    "ClassTeacherMapping": [
+        {"classId": "C1", "teacher": "Teacher1"},
+        {"classId": "C2", "teacher": "Teacher2"},
+        {"classId": "C3", "teacher": "Teacher1"}
+    ],
+    "ClassRoomMapping": [
+        {"classId": "C1", "room": "Room1"},
+        {"classId": "C2", "room": "Room1"},
+        {"classId": "C3", "room": "Room2"}
+    ],
+    "Constraints": {
+        "OneTimeSlotPerClass": True,
+        "TeacherConflict": True,
+        "RoomConflict": True
+    },
+    "ForcedAssignments": [
+        {"classId": "C1", "timeslot": "T1"},  # Force C1 to be in T1
+        {"classId": "C2", "timeslot": "T2"}   # Force C2 to be in T2
+    ]
+    }
+
+```
+
+And then run 
+
+```bash
+
+python model.py
 ```
