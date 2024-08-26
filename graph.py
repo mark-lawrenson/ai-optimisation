@@ -1,29 +1,20 @@
-from typing import Annotated
+from typing import Annotated, List, Optional, Type
+
+from typing_extensions import TypedDict
+from pydantic import BaseModel, Field
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage
-from typing_extensions import TypedDict
+from langchain_core.tools import BaseTool
+from langchain_core.globals import set_debug, set_verbose
 
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
-from typing import List, Optional, Type
-from typing import Annotated
-
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage
-from typing_extensions import TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import StateGraph
-from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode
 
-from langgraph.checkpoint.memory import MemorySaver
 from model import create_and_solve_timetable_model
-from langchain_core.globals import set_debug, set_verbose
 
 
 set_debug(False)
