@@ -1,4 +1,4 @@
-from typing import Annotated, List, Optional, Type
+from typing import Annotated, List, Optional, Type, Literal
 
 from typing_extensions import TypedDict
 from pydantic import BaseModel, Field
@@ -31,8 +31,6 @@ graph_builder = StateGraph(State)
 
 
 
-from pydantic import BaseModel, Field
-from typing import List, Literal, Optional
 
 # Define the literal types
 ClassLiteral = Literal["C1", "C2", "C3", "C4", "C5"]
