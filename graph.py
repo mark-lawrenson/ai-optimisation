@@ -1,21 +1,18 @@
-from typing import Annotated, List, Optional, Type, Literal
-
+from typing import Annotated, Type
 from typing_extensions import TypedDict
-from pydantic import BaseModel, Field
-
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage
+from pydantic import BaseModel
+from langchain_anthropic import ChatAnthropic
 from langchain_core.tools import BaseTool
 from langchain_core.globals import set_debug, set_verbose
-
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
-
 from langgraph.checkpoint.memory import MemorySaver
+import importlib.util
+import sys
+import ast
 
-from model import create_and_solve_timetable_model
-
+import model
 
 set_debug(False)
 set_verbose(False)
@@ -30,59 +27,68 @@ class State(TypedDict):
 graph_builder = StateGraph(State)
 
 
+class ReadModelTool(BaseTool):
+    name = "read_model"
+    description = "Read the timetable optimization model code"
+
+    def _run(self) -> str:
+        """Modify the model code."""
+        try:
+
+            # Write the new code to model.py
+            with open("model.py", "r") as f:
+                code = f.read()
+
+            return code
+        except Exception as e:
+            return f"Error reading the model: {str(e)}"
 
 
-# Define the literal types
-ClassLiteral = Literal["C1", "C2", "C3", "C4", "C5"]
-TimeSlotLiteral = Literal["T1", "T2", "T3", "T4", "T5"]
-TeacherLiteral = Literal["Teacher1", "Teacher2", "Teacher3", "Teacher4"]
-ClassroomLiteral = Literal["Room1", "Room2", "Room3", "Room4"]
+class ModifyModelTool(BaseTool):
+    name = "modify_model"
+    description = "Modify the timetable optimization model code"
 
-class ClassTeacherMapping(BaseModel):
-    classId: ClassLiteral
-    teacher: TeacherLiteral
+    class ModifyModelInput(BaseModel):
+        new_code: str
 
-class ClassRoomMapping(BaseModel):
-    classId: ClassLiteral
-    room: ClassroomLiteral
+    args_schema: Type[BaseModel] = ModifyModelInput
 
-class ForcedAssignment(BaseModel):
-    classId: ClassLiteral
-    timeslot: TimeSlotLiteral
+    def _run(self, new_code: str) -> str:
+        """Modify the model code."""
+        try:
+            # Parse the new code to check for syntax errors
+            ast.parse(new_code)
 
-class Constraints(BaseModel):
-    OneTimeSlotPerClass: bool
-    TeacherConflict: bool
-    RoomConflict: bool
+            # Write the new code to model.py
+            with open("model.py", "w") as f:
+                f.write(new_code)
 
-class TimetableInput(BaseModel):
-    Classes: List[ClassLiteral]
-    TimeSlots: List[TimeSlotLiteral]
-    Teachers: List[TeacherLiteral]
-    Classrooms: List[ClassroomLiteral]
-    ClassTeacherMapping: List[ClassTeacherMapping]
-    ClassRoomMapping: List[ClassRoomMapping]
-    Constraints: Constraints
-    ForcedAssignments: Optional[List[ForcedAssignment]] = None
+            # Reload the module
+            spec = importlib.util.spec_from_file_location("model", "model.py")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["model"] = module
+            spec.loader.exec_module(module)
 
-class TimetableInputSchema(BaseModel):
-    input: TimetableInput
+            return "Model successfully modified and reloaded."
+        except SyntaxError as e:
+            return f"Syntax error in the new code: {str(e)}"
+        except Exception as e:
+            return f"Error modifying the model: {str(e)}"
+
 
 class TimetableOptimiserTool(BaseTool):
     name = "time_table_optimiser"
     description = "Optimise the timetable"
-    args_schema: Type[BaseModel] = TimetableInputSchema
+    args_schema: Type[BaseModel] = model.TimetableInputSchema
 
-    def _run(
-        self, input: TimetableInput
-    ) -> str:
+    def _run(self, input: model.TimetableInput) -> str:
         """Use the tool."""
         data = input.model_dump()
-        return create_and_solve_timetable_model(data)
+        return model.create_and_solve_timetable_model(data)
 
 
-tools = [TimetableOptimiserTool()]
-llm = ChatOpenAI(model="gpt-4o")
+tools = [TimetableOptimiserTool(), ModifyModelTool(), ReadModelTool()]
+llm = ChatAnthropic(model="claude-3-5-sonnet-20240620")
 llm_with_tools = llm.bind_tools(tools)
 
 
