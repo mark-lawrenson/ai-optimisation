@@ -2,3 +2,5 @@ Pyomo>=6.8.0
 langgraph>=0.2.12
 prettytable>=3.11.0
 langchain-anthropic>=0.1.23
+langchain-openai
+highspy
