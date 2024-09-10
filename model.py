@@ -7,8 +7,6 @@ from pydantic import BaseModel
 from typing import List, Optional, Literal
 from pyomo.contrib.appsi.solvers import Highs
 
-# This is a test comment to demonstrate patching
-
 # Update the literal types to include C26
 ClassLiteral = Literal[
     "C1",
@@ -82,412 +80,315 @@ def create_and_solve_timetable_model(data):
     # R: Set of classrooms
 
     # Decision Variables:
-    # x[c,t,e,r] = 1 if class c is assigned to time slot t, teacher e, and room r, 0 otherwise
+    # x[c,t] = 1 if class c is assigned to time slot t, 0 otherwise
     # y[e,t] = 1 if teacher e is teaching in time slot t, 0 otherwise
+    # z[c,t,e] = 1 if class c is assigned to time slot t and teacher e, 0 otherwise
+    # w[c,t,r] = 1 if class c is assigned to time slot t and classroom r, 0 otherwise
+    # teacher_assignment[c,e] = 1 if teacher e is assigned to class c, 0 otherwise
+    # room_assignment[c,r] = 1 if classroom r is assigned to class c, 0 otherwise
     # first[e]: First time slot for teacher e
     # last[e]: Last time slot for teacher e
 
     # Objective:
-    # Minimize sum(last[e] - first[e] for e in E) + M * sum(1 - sum(x[c,t,e,r] for t in T, e in E, r in R) for c in C)
-    # Where M is a large constant to prioritize assigning all classes
+    # Minimize sum(last[e] - first[e] for e in E)
 
     # Constraints:
-    # 1. Each class must be assigned exactly one time slot, teacher, and room:
-    #    sum(x[c,t,e,r] for t in T, e in E, r in R) = 1 for all c in C
-    # 2. No teacher conflicts:
-    #    sum(x[c,t,e,r] for c in C, r in R) <= 1 for all t in T, e in E
-    # 3. No room conflicts:
-    #    sum(x[c,t,e,r] for c in C, e in E) <= 1 for all t in T, r in R
-    # 4. Linking x and y:
-    #    sum(x[c,t,e,r] for c in C, r in R) = y[e,t] for all e in E, t in T
-    # 5. Defining first and last time slots for each teacher:
+    # 1. Each class must be assigned exactly one time slot:
+    #    sum(x[c,t] for t in T) = 1 for all c in C
+    # 2. Each class must be assigned exactly one teacher:
+    #    sum(teacher_assignment[c,e] for e in E) = 1 for all c in C
+    # 3. Each class must be assigned exactly one room:
+    #    sum(room_assignment[c,r] for r in R) = 1 for all c in C
+    # 4. No teacher conflicts:
+    #    sum(z[c,t,e] for c in C) <= 1 for all t in T, e in E
+    # 5. No room conflicts:
+    #    sum(w[c,t,r] for c in C) <= 1 for all t in T, r in R
+    # 6. Linking constraints for z:
+    #    z[c,t,e] <= x[c,t] for all c in C, t in T, e in E
+    #    z[c,t,e] <= teacher_assignment[c,e] for all c in C, t in T, e in E
+    #    z[c,t,e] >= x[c,t] + teacher_assignment[c,e] - 1 for all c in C, t in T, e in E
+    # 7. Linking constraints for w:
+    #    w[c,t,r] <= x[c,t] for all c in C, t in T, r in R
+    #    w[c,t,r] <= room_assignment[c,r] for all c in C, t in T, r in R
+    #    w[c,t,r] >= x[c,t] + room_assignment[c,r] - 1 for all c in C, t in T, r in R
+    # 8. Linking x and y:
+    #    sum(z[c,t,e] for c in C) >= y[e,t] for all e in E, t in T
+    # 9. Defining first and last time slots for each teacher:
     #    first[e] <= t + (1 - y[e,t]) * |T| for all e in E, t in T
     #    last[e] >= t - (1 - y[e,t]) * |T| for all e in E, t in T
-    # 6. Forced assignments (if any):
-    #    x[c,t,e,r] = 1 for specified (c,t) pairs, for some e in E, r in R
-    # 7. Ensure all classes are assigned:
-    #    sum(x[c,t,e,r] for t in T, e in E, r in R) = 1 for all c in C
     # ----------------------------------------
     # ENSURE THE ABOVE MODEL AND THE CODE ARE COMPLETELY CONSISTENT.
 
-    try:
-        # Create a model
-        model = ConcreteModel()
+    # Create a model
+    model = ConcreteModel()
 
-        # Sets
-        model.Classes = Set(initialize=data["Classes"])
-        model.TimeSlots = Set(
-            initialize=list(range(1, len(data["TimeSlots"]) + 1))
-        )  # Use indices
-        model.Teachers = Set(initialize=data["Teachers"])
-        model.Classrooms = Set(initialize=data["Classrooms"])
+    # Sets
+    model.Classes = Set(initialize=data["Classes"])
+    model.TimeSlots = Set(
+        initialize=list(range(1, len(data["TimeSlots"]) + 1))
+    )  # Use indices
+    model.Teachers = Set(initialize=data["Teachers"])
+    model.Classrooms = Set(initialize=data["Classrooms"])
 
-        # Decision Variables
-        model.x = Var(
-            model.Classes,
-            model.TimeSlots,
-            model.Teachers,
-            model.Classrooms,
-            domain=Binary,
-        )
-        model.y = Var(model.Teachers, model.TimeSlots, domain=Binary)
-        # model.first = Var(model.Teachers, within=NonNegativeIntegers)
-        # model.last = Var(model.Teachers, within=NonNegativeIntegers)
+    # Decision Variables
+    model.x = Var(model.Classes, model.TimeSlots, domain=Binary)
+    model.teacher_assignment = Var(model.Classes, model.Teachers, domain=Binary)
+    model.room_assignment = Var(model.Classes, model.Classrooms, domain=Binary)
+    model.y = Var(model.Teachers, model.TimeSlots, domain=Binary)
+    model.first = Var(model.Teachers, within=NonNegativeIntegers)
+    model.last = Var(model.Teachers, within=NonNegativeIntegers)
+    model.z = Var(model.Classes, model.TimeSlots, model.Teachers, domain=Binary)
+    model.w = Var(model.Classes, model.TimeSlots, model.Classrooms, domain=Binary)
+    model.v = Var(model.Classes, model.TimeSlots, model.Teachers, domain=Binary)
 
-        # Simplified objective function for debugging
-        def simplified_objective_rule(model):
-            return sum(model.y[e, t] for e in model.Teachers for t in model.TimeSlots)
+    # Constraints
+    # 1. Each class must be assigned exactly one time slot
+    if data["Constraints"]["OneTimeSlotPerClass"]:
 
-        model.objective = Objective(rule=simplified_objective_rule, sense=minimize)
+        def one_time_slot_per_class_rule(model, c):
+            return sum(model.x[c, t] for t in model.TimeSlots) == 1
 
-        # Constraints
-        # 1. Each class must be assigned exactly one time slot, teacher, and room
-        def one_assignment_per_class_rule(model, c):
-            return (
-                sum(
-                    model.x[c, t, e, r]
-                    for t in model.TimeSlots
-                    for e in model.Teachers
-                    for r in model.Classrooms
-                )
-                == 1
-            )
-
-        model.one_assignment_per_class = Constraint(
-            model.Classes, rule=one_assignment_per_class_rule
+        model.one_time_slot_per_class = Constraint(
+            model.Classes, rule=one_time_slot_per_class_rule
         )
 
-        # 2. No teacher conflicts
-        if data["Constraints"]["TeacherConflict"]:
-
-            def teacher_conflict_rule(model, t, e):
-                return (
-                    sum(
-                        model.x[c, t, e, r]
-                        for c in model.Classes
-                        for r in model.Classrooms
-                    )
-                    <= 1
-                )
-
-            model.teacher_conflict = Constraint(
-                model.TimeSlots, model.Teachers, rule=teacher_conflict_rule
-            )
-
-        # 3. No room conflicts
-        if data["Constraints"]["RoomConflict"]:
-
-            def room_conflict_rule(model, t, r):
-                return (
-                    sum(
-                        model.x[c, t, e, r]
-                        for c in model.Classes
-                        for e in model.Teachers
-                    )
-                    <= 1
-                )
-
-            model.room_conflict = Constraint(
-                model.TimeSlots, model.Classrooms, rule=room_conflict_rule
-            )
-
-        # 4. Link x and y
-        def link_x_y_rule(model, e, t):
-            return (
-                sum(
-                    model.x[c, t, e, r] for c in model.Classes for r in model.Classrooms
-                )
-                == model.y[e, t]
-            )
-
-        model.link_x_y = Constraint(model.Teachers, model.TimeSlots, rule=link_x_y_rule)
-
-        # Simplified constraint for debugging
-        def simplified_rule(model):
-            return sum(model.x[c, t, e, r] for c in model.Classes for t in model.TimeSlots for e in model.Teachers for r in model.Classrooms) >= 1
-
-        model.simplified_constraint = Constraint(rule=simplified_rule)
-
-        # 5. Ensure first and last slots are correctly identified
-        # def min_first_time_slot_rule(model, e, t):
-        #     return model.first[e] <= t + (1 - model.y[e, t]) * len(model.TimeSlots)
-
-        # model.min_first_time_slot = Constraint(
-        #     model.Teachers, model.TimeSlots, rule=min_first_time_slot_rule
-        # )
-
-        # def max_last_time_slot_rule(model, e, t):
-        #     return model.last[e] >= t - (1 - model.y[e, t]) * len(model.TimeSlots)
-
-        # model.max_last_time_slot = Constraint(
-        #     model.Teachers, model.TimeSlots, rule=max_last_time_slot_rule
-        # )
-
-        # 6. Force specific classes into specific time slots
-        if "ForcedAssignments" in data and data["ForcedAssignments"]:
-
-            def force_assignment_rule(model, c, t):
-                forced_assignments = {
-                    entry["classId"]: entry["timeslot"]
-                    for entry in data["ForcedAssignments"]
-                }
-                if c in forced_assignments and forced_assignments[c] == t:
-                    return (
-                        sum(
-                            model.x[c, t, e, r]
-                            for e in model.Teachers
-                            for r in model.Classrooms
-                        )
-                        == 1
-                    )
-                else:
-                    return Constraint.Skip
-
-            model.force_assignment = Constraint(
-                model.Classes, model.TimeSlots, rule=force_assignment_rule
-            )
-
-        # 7. Ensure all classes are assigned
-        def all_classes_assigned_rule(model, c):
-            return (
-                sum(
-                    model.x[c, t, e, r]
-                    for t in model.TimeSlots
-                    for e in model.Teachers
-                    for r in model.Classrooms
-                )
-                == 1
-            )
-
-        model.all_classes_assigned = Constraint(
-            model.Classes, rule=all_classes_assigned_rule
+    # 2. Each class must be assigned exactly one teacher
+    def one_teacher_per_class_rule(model, c):
+        return (
+            sum(model.teacher_assignment[c, teacher] for teacher in model.Teachers) == 1
         )
 
-        # Add transition tracking variables
-        model.transition = Var(
-            model.Teachers, model.TimeSlots, model.TimeSlots, domain=Binary
+    model.one_teacher_per_class = Constraint(
+        model.Classes, rule=one_teacher_per_class_rule
+    )
+
+    # 3. Each class must be assigned exactly one room
+    def one_room_per_class_rule(model, c):
+        return sum(model.room_assignment[c, room] for room in model.Classrooms) == 1
+
+    model.one_room_per_class = Constraint(model.Classes, rule=one_room_per_class_rule)
+
+    # 4. No two classes that share a common teacher can be in the same time slot
+    if data["Constraints"]["TeacherConflict"]:
+
+        def teacher_conflict_rule(model, t, teacher):
+            return sum(model.z[c, t, teacher] for c in model.Classes) <= 1
+
+        model.teacher_conflict = Constraint(
+            model.TimeSlots, model.Teachers, rule=teacher_conflict_rule
         )
 
-        # Constraint to track transitions between different rooms for each teacher
-        def transition_tracking_rule(model, e, t1, t2):
-            if t1 < t2 and t2 == t1 + 1:
-                return model.transition[e, t1, t2] == (
-                    sum(
-                        model.x[c, t1, e, r1]
-                        for c in model.Classes
-                        for r1 in model.Classrooms
-                    )
-                    * sum(
-                        model.x[c, t2, e, r2]
-                        for c in model.Classes
-                        for r1 in model.Classrooms
-                        for r2 in model.Classrooms
-                        if r1 != r2
-                    )
-                )
+    # Link z with x and teacher_assignment
+    def link_z_with_x_and_teacher_rule1(model, c, t, teacher):
+        return model.z[c, t, teacher] <= model.x[c, t]
+
+    model.link_z_with_x_and_teacher1 = Constraint(
+        model.Classes,
+        model.TimeSlots,
+        model.Teachers,
+        rule=link_z_with_x_and_teacher_rule1,
+    )
+
+    def link_z_with_x_and_teacher_rule2(model, c, t, teacher):
+        return model.z[c, t, teacher] <= model.teacher_assignment[c, teacher]
+
+    model.link_z_with_x_and_teacher2 = Constraint(
+        model.Classes,
+        model.TimeSlots,
+        model.Teachers,
+        rule=link_z_with_x_and_teacher_rule2,
+    )
+
+    def link_z_with_x_and_teacher_rule3(model, c, t, teacher):
+        return (
+            model.z[c, t, teacher]
+            >= model.x[c, t] + model.teacher_assignment[c, teacher] - 1
+        )
+
+    model.link_z_with_x_and_teacher3 = Constraint(
+        model.Classes,
+        model.TimeSlots,
+        model.Teachers,
+        rule=link_z_with_x_and_teacher_rule3,
+    )
+
+    # 5. No two classes that share a common classroom can be in the same time slot
+    if data["Constraints"]["RoomConflict"]:
+
+        def room_conflict_rule(model, t, room):
+            return sum(model.w[c, t, room] for c in model.Classes) <= 1
+
+        model.room_conflict = Constraint(
+            model.TimeSlots, model.Classrooms, rule=room_conflict_rule
+        )
+
+    # Link w with x and room_assignment
+    def link_w_with_x_and_room_rule1(model, c, t, room):
+        return model.w[c, t, room] <= model.x[c, t]
+
+    model.link_w_with_x_and_room1 = Constraint(
+        model.Classes,
+        model.TimeSlots,
+        model.Classrooms,
+        rule=link_w_with_x_and_room_rule1,
+    )
+
+    def link_w_with_x_and_room_rule2(model, c, t, room):
+        return model.w[c, t, room] <= model.room_assignment[c, room]
+
+    model.link_w_with_x_and_room2 = Constraint(
+        model.Classes,
+        model.TimeSlots,
+        model.Classrooms,
+        rule=link_w_with_x_and_room_rule2,
+    )
+
+    def link_w_with_x_and_room_rule3(model, c, t, room):
+        return model.w[c, t, room] >= model.x[c, t] + model.room_assignment[c, room] - 1
+
+    model.link_w_with_x_and_room3 = Constraint(
+        model.Classes,
+        model.TimeSlots,
+        model.Classrooms,
+        rule=link_w_with_x_and_room_rule3,
+    )
+
+    # 6. Force specific classes into specific time slots
+    if "ForcedAssignments" in data and data["ForcedAssignments"]:
+
+        def force_assignment_rule(model, c, t):
+            forced_assignments = {
+                entry["classId"]: entry["timeslot"]
+                for entry in data["ForcedAssignments"]
+            }
+            if c in forced_assignments and forced_assignments[c] == t:
+                return model.x[c, t] == 1
             else:
                 return Constraint.Skip
 
-        model.transition_tracking = Constraint(
-            model.Teachers,
-            model.TimeSlots,
-            model.TimeSlots,
-            rule=transition_tracking_rule,
+        model.force_assignment = Constraint(
+            model.Classes, model.TimeSlots, rule=force_assignment_rule
         )
 
-        # Objective: Minimize the cost based on teachers' time at school and minimize teacher transitions between rooms
-        def minimize_teacher_cost_and_transitions(model):
-            M = 10000  # Large constant to prioritize assigning all classes
-            transition_cost = 10  # Cost for teacher transition between rooms
-            time_at_school_cost = sum(
-                (model.last[e] - model.first[e] + 1) * 100 for e in model.Teachers
-            )
-            unassigned_classes_cost = M * sum(
-                1
-                - sum(
-                    model.x[c, t, e, r]
-                    for t in model.TimeSlots
-                    for e in model.Teachers
-                    for r in model.Classrooms
-                )
-                for c in model.Classes
-            )
-            transition_penalty = sum(
-                transition_cost * model.transition[e, t1, t2]
-                for e in model.Teachers
-                for t1 in model.TimeSlots
-                for t2 in model.TimeSlots
-                if t1 < t2
-            )
-            return time_at_school_cost + unassigned_classes_cost + transition_penalty
+    # Link x and y: y[e, t] should be 1 if any class taught by teacher e is at time slot t
+    def link_x_y_rule(model, e, t):
+        return sum(model.v[c, t, e] for c in model.Classes) >= model.y[e, t]
 
-        model.objective = Objective(
-            rule=minimize_teacher_cost_and_transitions, sense=minimize
+    model.link_x_y = Constraint(model.Teachers, model.TimeSlots, rule=link_x_y_rule)
+
+    # Link v with x and teacher_assignment
+    def link_v_with_x_and_teacher_rule1(model, c, t, teacher):
+        return model.v[c, t, teacher] <= model.x[c, t]
+
+    model.link_v_with_x_and_teacher1 = Constraint(
+        model.Classes,
+        model.TimeSlots,
+        model.Teachers,
+        rule=link_v_with_x_and_teacher_rule1,
+    )
+
+    def link_v_with_x_and_teacher_rule2(model, c, t, teacher):
+        return model.v[c, t, teacher] <= model.teacher_assignment[c, teacher]
+
+    model.link_v_with_x_and_teacher2 = Constraint(
+        model.Classes,
+        model.TimeSlots,
+        model.Teachers,
+        rule=link_v_with_x_and_teacher_rule2,
+    )
+
+    def link_v_with_x_and_teacher_rule3(model, c, t, teacher):
+        return (
+            model.v[c, t, teacher]
+            >= model.x[c, t] + model.teacher_assignment[c, teacher] - 1
         )
 
-        # Constraint: No teacher should have more than 6 hours of workload in a day
-        def max_teacher_workload_rule(model, e):
-            return sum(model.y[e, t] for t in model.TimeSlots) <= 6
+    model.link_v_with_x_and_teacher3 = Constraint(
+        model.Classes,
+        model.TimeSlots,
+        model.Teachers,
+        rule=link_v_with_x_and_teacher_rule3,
+    )
 
-        model.max_teacher_workload = Constraint(
-            model.Teachers, rule=max_teacher_workload_rule
-        )
+    # Ensure first and last slots are correctly identified
+    def min_first_time_slot_rule(model, e, t):
+        return model.first[e] <= t + (1 - model.y[e, t]) * len(model.TimeSlots)
 
-        # Solve the model
-        solver = Highs()
-        res = solver.solve(model)
+    model.min_first_time_slot = Constraint(
+        model.Teachers, model.TimeSlots, rule=min_first_time_slot_rule
+    )
 
-        # Check if the solution is optimal and feasible
-        print("Termination Condition:", res.termination_condition)
+    def max_last_time_slot_rule(model, e, t):
+        return model.last[e] >= t - (1 - model.y[e, t]) * len(model.TimeSlots)
 
-        # Feasibility check
-        for c in model.Classes:
-            assigned = sum(
-                model.x[c, t, e, r].value
-                for t in model.TimeSlots
-                for e in model.Teachers
-                for r in model.Classrooms
-            )
-            if (
-                assigned < 0.99
-            ):  # Use 0.99 as threshold due to potential floating-point issues
-                return {"error": f"Class {c} is not assigned (assigned = {assigned})"}
+    model.max_last_time_slot = Constraint(
+        model.Teachers, model.TimeSlots, rule=max_last_time_slot_rule
+    )
 
-        # Calculate the total cost
-        total_cost = model.objective()
+    # Objective: Minimize the working span for each teacher
+    def minimize_teacher_working_span(model):
+        return sum(model.last[e] - model.first[e] for e in model.Teachers)
 
-        # Initialize debug_info
-        debug_info = {}
+    model.objective = Objective(rule=minimize_teacher_working_span, sense=minimize)
 
-        # Helper function to calculate teacher hours
-        def calculate_teacher_hours(model, teacher):
-            return sum(model.y[teacher, t].value for t in model.TimeSlots)
+    # Solve the model
+    solver = Highs()
+    solver.solve(model)
 
-        # Add teacher hours to the debug info
-        debug_info["teacher_hours"] = {
-            e: calculate_teacher_hours(model, e) for e in model.Teachers
-        }
+    # Calculate the total cost
+    teacher_cost_per_hour = 100
+    total_cost = sum(
+        (model.last[e].value - model.first[e].value + 1) * teacher_cost_per_hour
+        for e in model.Teachers
+    )
 
-        # Display results in a terminal table grid
-        room_table = PrettyTable()
-        room_names = sorted(list(model.Classrooms))
-        room_table.field_names = ["Time Slot"] + room_names
+    # Display results in a terminal table grid
+    room_table = PrettyTable()
+    room_names = sorted(list(model.Classrooms))
+    room_table.field_names = ["Time Slot"] + room_names
 
-        # Populate the table with class schedules
-        for t in model.TimeSlots:
-            row = [t]
-            for room in room_names:
-                room_class = ""
-                for c in model.Classes:
-                    if (
-                        sum(model.x[c, t, e, room].value for e in model.Teachers) > 0.5
-                    ):  # Use 0.5 as threshold due to potential floating-point issues
-                        room_class = c
-                        break
-                row.append(room_class)
-            room_table.add_row(row)
+    # Populate the table with class schedules
+    for t in model.TimeSlots:
+        row = [t]
+        for room in room_names:
+            room_class = ""
+            for c in model.Classes:
+                if (
+                    model.x[c, t].value == 1
+                    and model.room_assignment[c, room].value == 1
+                ):
+                    room_class = c
+                    break
+            row.append(room_class)
+        room_table.add_row(row)
 
-        teacher_table = PrettyTable()
-        teacher_table.field_names = ["Time Slot"] + room_names
+    teacher_table = PrettyTable()
+    teacher_table.field_names = ["Time Slot"] + room_names
 
-        # Populate the table with teacher schedules
-        for t in model.TimeSlots:
-            row = [t]
-            for room in room_names:
-                room_teacher = ""
-                for c in model.Classes:
-                    for e in model.Teachers:
-                        if (
-                            model.x[c, t, e, room].value > 0.5
-                        ):  # Use 0.5 as threshold due to potential floating-point issues
-                            room_teacher = e
-                            break
-                    if room_teacher:
-                        break
-                row.append(room_teacher)
-            teacher_table.add_row(row)
+    # Populate the table with teacher schedules
+    for t in model.TimeSlots:
+        row = [t]
+        for room in room_names:
+            room_teacher = ""
+            for c in model.Classes:
+                if (
+                    model.x[c, t].value == 1
+                    and model.room_assignment[c, room].value == 1
+                ):
+                    room_teacher = [
+                        teacher
+                        for teacher in model.Teachers
+                        if model.teacher_assignment[c, teacher].value == 1
+                    ][0]
+                    break
+            row.append(room_teacher)
+        teacher_table.add_row(row)
 
-        # Update debugging information
-        debug_info.update(
-            {
-                "model_stats": {
-                    "num_variables": model.nvariables(),
-                    "num_constraints": model.nconstraints(),
-                    "num_objectives": model.nobjectives(),
-                },
-                "sets": {
-                    "Classes": len(model.Classes),
-                    "TimeSlots": len(model.TimeSlots),
-                    "Teachers": len(model.Teachers),
-                    "Classrooms": len(model.Classrooms),
-                },
-                "variable_stats": {
-                    "x": sum(
-                        model.x[c, t, e, r].value
-                        for c in model.Classes
-                        for t in model.TimeSlots
-                        for e in model.Teachers
-                        for r in model.Classrooms
-                    ),
-                    "y": sum(
-                        model.y[e, t].value
-                        for e in model.Teachers
-                        for t in model.TimeSlots
-                    ),
-                },
-                "constraint_stats": {
-                    "one_assignment_per_class": [
-                        model.one_assignment_per_class[c].body() for c in model.Classes
-                    ],
-                    "teacher_conflict": (
-                        [
-                            model.teacher_conflict[t, e].body()
-                            for t in model.TimeSlots
-                            for e in model.Teachers
-                        ]
-                        if hasattr(model, "teacher_conflict")
-                        else "Not applied"
-                    ),
-                    "room_conflict": (
-                        [
-                            model.room_conflict[t, r].body()
-                            for t in model.TimeSlots
-                            for r in model.Classrooms
-                        ]
-                        if hasattr(model, "room_conflict")
-                        else "Not applied"
-                    ),
-                },
-                "objective_value": model.objective(),
-                "solver_info": {
-                    "termination_condition": res.termination_condition,
-                },
-            }
-        )
-
-        # Calculate actual teacher hours at school
-        teacher_hours_at_school = {
-            e: (
-                (model.last[e].value - model.first[e].value + 1)
-                if model.last[e].value > 0
-                else 0
-            )
-            for e in model.Teachers
-        }
-        total_cost = sum(teacher_hours_at_school.values()) * 100
-
-        debug_info["teacher_hours_at_school"] = teacher_hours_at_school
-        debug_info["first_slot"] = {e: model.first[e].value for e in model.Teachers}
-        debug_info["last_slot"] = {e: model.last[e].value for e in model.Teachers}
-
-        return {
-            "room_table": room_table.get_string(),
-            "teacher_table": teacher_table.get_string(),
-            "total_cost": total_cost,
-            "debug_info": debug_info,
-        }
-    except Exception as e:
-        return {"error": f"An error occurred: {str(e)}"}
+    return {
+        "room_table": room_table.get_string(),
+        "teacher_table": teacher_table.get_string(),
+        "total_cost": total_cost,
+    }
 
 
 # Example usage with the updated data structure:
@@ -510,8 +411,5 @@ if __name__ == "__main__":
 
     # Call the function with the data
     res = create_and_solve_timetable_model(data)
-    print(res)
     print(res["teacher_table"])
-
-    # This is another test comment to demonstrate patching
-    print("Timetable optimization complete!")
+    print(res)
