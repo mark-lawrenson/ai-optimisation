@@ -1,6 +1,9 @@
-from typing import Annotated, Literal
+from typing import Annotated, List, Literal
 from typing_extensions import TypedDict
+
 from langchain_anthropic import ChatAnthropic
+
+# from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, MessagesState
 from langgraph.graph.message import add_messages
@@ -8,13 +11,16 @@ from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
 import importlib.util
 import sys
-
 import model
+import ast
+from thefuzz import fuzz
 
 # set_debug(True)
 # set_verbose(True)
 
 memory = MemorySaver()
+
+# TODO: Use claude caching
 
 
 class State(TypedDict):
@@ -24,13 +30,157 @@ class State(TypedDict):
 graph_builder = StateGraph(State)
 
 
-# Tool to modify the model code
+class PatchingError(ValueError):
+    """Custom exception for invalid patching inputs."""
+
+    pass
+
+
+def find_best_match(lines: List[str], context: List[str], threshold: int = 80) -> int:
+    """Find the best match for a context in the lines using a sliding window approach."""
+    best_score = 0
+    best_index = -1
+
+    for i in range(len(lines) - len(context) + 1):
+        window = lines[i : i + len(context)]
+        score = sum(fuzz.ratio(a, b) for a, b in zip(window, context)) / len(context)
+        if score > best_score:
+            best_score = score
+            best_index = i
+
+    return best_index if best_score >= threshold else -1
+
+
+def apply_context_patch(original: str, patch: str) -> str:
+    """Apply a context-based patch to the original text."""
+    lines = original.splitlines()
+    patch_lines = patch.splitlines()
+    result = []
+    i = 0
+
+    while i < len(patch_lines):
+        line = patch_lines[i].strip()
+        if line.startswith("<<<"):
+            # Extract context and changes
+            context = []
+            changes = []
+            i += 1
+            try:
+                while i < len(patch_lines) and not patch_lines[i].strip().startswith(
+                    "---"
+                ):
+                    context.append(patch_lines[i])
+                    i += 1
+                i += 1  # Skip the '---' line
+                while i < len(patch_lines) and not patch_lines[i].strip().startswith(
+                    ">>>"
+                ):
+                    changes.append(patch_lines[i])
+                    i += 1
+                i += 1  # Skip the '>>>' line
+            except IndexError:
+                raise PatchingError(
+                    f"Error: Malformed patch. Unexpected end of patch data at line {i}"
+                )
+
+            # Find the best match for the context
+            best_match = find_best_match(lines, context)
+
+            if best_match != -1:
+                # Apply the changes
+                result.extend(lines[:best_match])
+                result.extend(changes)
+                result.extend(lines[best_match + len(context) :])
+                lines = result
+                result = []
+            else:
+                raise PatchingError(
+                    f"Error: Couldn't find a match for context:\n{context}"
+                )
+        else:
+            result.append(line)
+        i += 1
+
+    result.extend(lines)
+    return "\n".join(result)
+
+
+def apply_context_patches(original_code, patches):
+    # Split the patches up and call apply_context_patch on each of them
+    combined_patch_lines = patches.splitlines()
+    if not combined_patch_lines[0].startswith("<<<"):
+        raise PatchingError("Error: Malformed Patch, did not start with <<<")
+    split_patchlines = list()
+    for line in combined_patch_lines:
+        if line.startswith("<<<"):
+            split_patchlines.append([])
+        split_patchlines[-1].append(line)
+    patched_code = original_code
+    for i, patch_lines in enumerate(split_patchlines):
+        print(f"Patching patch {i}")
+        patched_code = apply_context_patch(patched_code, "\n".join(patch_lines))
+    return patched_code
+
+
+@tool
+def patch_model(patch: str) -> str:
+    """Patch the timetable optimization model code using a context-based patch format.
+    Please use the following format for each change
+    ```
+    <<<
+    [complete lines to find in the code]
+    ---
+    [new code to replace the found lines entirely]
+    >>>
+    ```
+    Make multiple changes by using the above format repeatedly in the input, prefer to make multiple smaller changes over one larger change.
+    Keep the find and replace blocks as short as possible to implement the desired changes.
+    DO NOT INCLUDE ANY PLACEHOLDERS IN THE NEW CODE!!!
+    """
+    try:
+        with open("model.py", "r") as f:
+            original_code = f.read()
+
+        # Write the new code to model.py
+        with open("model.patch", "w") as f:
+            f.write(patch)
+
+        new_code = apply_context_patches(original_code, patch)
+
+        # Write the new code to model.py
+        with open("model_patched.py", "w") as f:
+            f.write(new_code)
+
+        # Parse the new code to check for syntax errors
+        ast.parse(new_code)
+
+        # Write the new code to model.py
+        with open("model.py", "w") as f:
+            f.write(new_code)
+
+        # Reload the module
+        if "model" in sys.modules:
+            print("DEBUG: Model module found in sys.modules, reloading it.")
+            del sys.modules["model"]
+        spec = importlib.util.spec_from_file_location("model", "model.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["model"] = module
+        spec.loader.exec_module(module)
+
+        return "Model successfully patched and reloaded."
+    except SyntaxError as e:
+        return f"Syntax error in the new code: {str(e)}"
+    except PatchingError as e:
+        return f"There was an error with the provided patch data: {str(e)}"
+    except Exception as e:
+        return f"Error modifying the model: {str(e)}"
+
+
+# Tool to write the model code
 @tool
 def write_model(new_code: str) -> str:
     """Write the timetable optimization model code."""
     try:
-        # Parse the new code to check for syntax errors
-        # ast.parse(new_code)
 
         # Write the new code to model.py
         with open("model.py", "w") as f:
@@ -60,6 +210,8 @@ def read_model() -> str:
     try:
         with open("model.py", "r") as f:
             code = f.read()
+        with open("model_read.py", "w") as f:
+            f.write(code)
         return code
     except Exception as e:
         return f"Error reading the model: {str(e)}"
@@ -68,7 +220,8 @@ def read_model() -> str:
 # Tool to optimize the timetable
 @tool(args_schema=model.TimetableInputSchema)
 def time_table_optimiser(input: model.TimetableInput) -> str:
-    """Optimise the timetable"""
+    """Optimise the timetable
+    When displaying output always include the pretty tables"""
     try:
         import model as model_run
 
@@ -79,10 +232,10 @@ def time_table_optimiser(input: model.TimetableInput) -> str:
 
 
 # Now bind these functions to ToolNodes
-tools = [read_model, write_model, time_table_optimiser]
+tools = [read_model, patch_model, time_table_optimiser]
 tool_node = ToolNode(tools)
 
-llm = ChatAnthropic(model="claude-3-5-sonnet-20240620")
+llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens_to_sample=8192)
 # llm = ChatOpenAI(model="gpt-4o")
 llm_with_tools = llm.bind_tools(tools)
 
