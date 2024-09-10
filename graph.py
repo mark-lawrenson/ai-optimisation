@@ -22,6 +22,14 @@ memory = MemorySaver()
 
 # TODO: Use claude caching
 
+system_prompt = """
+You are an assistant that helps users interact with optimisation models.
+In particular you have a timetable optimisation tool, as well as the capability to read and edit the code of this optimisation model.
+When changing the model, you must first think about the changes you want to make to the mathematical model, summarise the new mathematical model, then implement the changes in code.
+The mathematical model can only be MILP, it does not suport general expressions or nonlinearity at all.
+When implementing changes in code ensure you patch the code using the current version of the code - reread the code if necessary.
+"""
+
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
@@ -85,6 +93,27 @@ def apply_context_patch(original: str, patch: str) -> str:
 
             # Find the best match for the context
             best_match = find_best_match(lines, context)
+
+            # deal with indentation
+            # Figure out the least indented common across the best match
+            min_leading_spaces_original = 999
+            for l in lines[best_match : best_match + len(context)]:
+                min_leading_spaces_original = min(
+                    min_leading_spaces_original, len(l) - len(l.lstrip(" "))
+                )
+
+            # Figure out the least indented common across the best match
+            min_leading_spaces_changes = 999
+            for l in changes:
+                min_leading_spaces_changes = min(
+                    min_leading_spaces_changes, len(l) - len(l.lstrip(" "))
+                )
+
+            # Add indentation to changes
+            additional_indentation = (
+                min_leading_spaces_original - min_leading_spaces_changes
+            )
+            changes = [" " * additional_indentation + change for change in changes]
 
             if best_match != -1:
                 # Apply the changes
@@ -235,7 +264,11 @@ def time_table_optimiser(input: model.TimetableInput) -> str:
 tools = [read_model, patch_model, time_table_optimiser]
 tool_node = ToolNode(tools)
 
-llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens_to_sample=8192)
+llm = ChatAnthropic(
+    model="claude-3-5-sonnet-20240620",
+    max_tokens_to_sample=8192,
+    model_kwargs=dict(system=system_prompt),
+)
 # llm = ChatOpenAI(model="gpt-4o")
 llm_with_tools = llm.bind_tools(tools)
 
