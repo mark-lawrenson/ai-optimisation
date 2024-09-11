@@ -26,9 +26,7 @@ def create_and_solve_timetable_model(data):
 
     # Sets
     model.Classes = Set(initialize=data["Classes"])
-    model.TimeSlots = Set(
-        initialize=list(range(1, len(data["TimeSlots"]) + 1))
-    )  # Use indices
+    model.TimeSlots = Set(initialize=list(range(1, len(data["TimeSlots"]) + 1)))
     model.Teachers = Set(initialize=data["Teachers"])
     model.Classrooms = Set(initialize=data["Classrooms"])
 
@@ -36,12 +34,8 @@ def create_and_solve_timetable_model(data):
     model.x = Var(model.Classes, model.TimeSlots, domain=Binary)
     model.teacher_assignment = Var(model.Classes, model.Teachers, domain=Binary)
     model.room_assignment = Var(model.Classes, model.Classrooms, domain=Binary)
-    model.y = Var(model.Teachers, model.TimeSlots, domain=Binary)
-    model.first = Var(model.Teachers, within=NonNegativeIntegers)
-    model.last = Var(model.Teachers, within=NonNegativeIntegers)
     model.z = Var(model.Classes, model.TimeSlots, model.Teachers, domain=Binary)
     model.w = Var(model.Classes, model.TimeSlots, model.Classrooms, domain=Binary)
-    model.v = Var(model.Classes, model.TimeSlots, model.Teachers, domain=Binary)
 
     # Constraints
     # 1. Each class must be assigned exactly one time slot
@@ -149,77 +143,15 @@ def create_and_solve_timetable_model(data):
         rule=link_w_with_x_and_room_rule3,
     )
 
-    # Link x and y: y[e, t] should be 1 if any class taught by teacher e is at time slot t
-    def link_x_y_rule(model, e, t):
-        return sum(model.v[c, t, e] for c in model.Classes) >= model.y[e, t]
+    # Objective: Minimize the number of time slots used
+    def minimize_time_slots(model):
+        return sum(model.x[c, t] * t for c in model.Classes for t in model.TimeSlots)
 
-    model.link_x_y = Constraint(model.Teachers, model.TimeSlots, rule=link_x_y_rule)
-
-    # Link v with x and teacher_assignment
-    def link_v_with_x_and_teacher_rule1(model, c, t, teacher):
-        return model.v[c, t, teacher] <= model.x[c, t]
-
-    model.link_v_with_x_and_teacher1 = Constraint(
-        model.Classes,
-        model.TimeSlots,
-        model.Teachers,
-        rule=link_v_with_x_and_teacher_rule1,
-    )
-
-    def link_v_with_x_and_teacher_rule2(model, c, t, teacher):
-        return model.v[c, t, teacher] <= model.teacher_assignment[c, teacher]
-
-    model.link_v_with_x_and_teacher2 = Constraint(
-        model.Classes,
-        model.TimeSlots,
-        model.Teachers,
-        rule=link_v_with_x_and_teacher_rule2,
-    )
-
-    def link_v_with_x_and_teacher_rule3(model, c, t, teacher):
-        return (
-            model.v[c, t, teacher]
-            >= model.x[c, t] + model.teacher_assignment[c, teacher] - 1
-        )
-
-    model.link_v_with_x_and_teacher3 = Constraint(
-        model.Classes,
-        model.TimeSlots,
-        model.Teachers,
-        rule=link_v_with_x_and_teacher_rule3,
-    )
-
-    # Ensure first and last slots are correctly identified
-    def min_first_time_slot_rule(model, e, t):
-        return model.first[e] <= t + (1 - model.y[e, t]) * len(model.TimeSlots)
-
-    model.min_first_time_slot = Constraint(
-        model.Teachers, model.TimeSlots, rule=min_first_time_slot_rule
-    )
-
-    def max_last_time_slot_rule(model, e, t):
-        return model.last[e] >= t - (1 - model.y[e, t]) * len(model.TimeSlots)
-
-    model.max_last_time_slot = Constraint(
-        model.Teachers, model.TimeSlots, rule=max_last_time_slot_rule
-    )
-
-    # Objective: Minimize the working span for each teacher
-    def minimize_teacher_working_span(model):
-        return sum(model.last[e] - model.first[e] for e in model.Teachers)
-
-    model.objective = Objective(rule=minimize_teacher_working_span, sense=minimize)
+    model.objective = Objective(rule=minimize_time_slots, sense=minimize)
 
     # Solve the model
     solver = Highs()
     solver.solve(model)
-
-    # Calculate the total cost
-    teacher_cost_per_hour = 100
-    total_cost = sum(
-        (model.last[e].value - model.first[e].value + 1) * teacher_cost_per_hour
-        for e in model.Teachers
-    )
 
     # Display results in a terminal table grid
     room_table = PrettyTable()
@@ -266,7 +198,6 @@ def create_and_solve_timetable_model(data):
     return {
         "room_table": room_table.get_string(),
         "teacher_table": teacher_table.get_string(),
-        "total_cost": total_cost,
     }
 
 
