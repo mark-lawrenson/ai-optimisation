@@ -1,8 +1,9 @@
-from pyomo.environ import *
 from prettytable import PrettyTable
+from pyomo.environ import *
 from pydantic import BaseModel
 from typing import List
 from pyomo.contrib.appsi.solvers import Highs
+import time
 
 
 class TimetableInput(BaseModel):
@@ -151,7 +152,24 @@ def create_and_solve_timetable_model(data):
 
     # Solve the model
     solver = Highs()
-    solver.solve(model)
+    solver.highs_options["time_limit"] = 30.0  # Set 30-second time limit
+
+    start_time = time.time()
+    results = solver.solve(model)
+    solve_time = time.time() - start_time
+
+    # Prepare debug information
+    debug_info = {
+        "termination_condition": results.termination_condition,
+        "solve_time": solve_time,
+        "objective_value": None,
+        "best_objective_bound": None,
+        "best_feasible_objective": None,
+    }
+
+    debug_info["objective_value"] = value(model.objective)
+    debug_info["best_objective_bound"] = results.best_objective_bound
+    debug_info["best_feasible_objective"] = results.best_feasible_objective
 
     # Display results in a terminal table grid
     room_table = PrettyTable()
@@ -198,6 +216,7 @@ def create_and_solve_timetable_model(data):
     return {
         "room_table": room_table.get_string(),
         "teacher_table": teacher_table.get_string(),
+        "debug_info": debug_info,
     }
 
 
