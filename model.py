@@ -1,64 +1,15 @@
-# ALWAYS MODIFY THIS CODE IN COMPLETE FORM, NEVER WRITE PLACEHOLDERS.
-# THIS CODE MUST BE RUN DIRECTLY AS WRITTEN.
-
 from pyomo.environ import *
 from prettytable import PrettyTable
 from pydantic import BaseModel
-from typing import List, Optional, Literal
+from typing import List
 from pyomo.contrib.appsi.solvers import Highs
-
-# Update the literal types to include C26
-ClassLiteral = Literal[
-    "C1",
-    "C2",
-    "C3",
-    "C4",
-    "C5",
-    "C6",
-    "C7",
-    "C8",
-    "C9",
-    "C10",
-    "C11",
-    "C12",
-    "C13",
-    "C14",
-    "C15",
-    "C16",
-    "C17",
-    "C18",
-    "C19",
-    "C20",
-    "C21",
-    "C22",
-    "C23",
-    "C24",
-    "C25",
-    "C26",
-]
-TimeSlotLiteral = Literal["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10"]
-TeacherLiteral = Literal["Teacher1", "Teacher2", "Teacher3", "Teacher4", "Teacher5"]
-ClassroomLiteral = Literal["Room1", "Room2", "Room3", "Room4"]
-
-
-class ForcedAssignment(BaseModel):
-    classId: ClassLiteral
-    timeslot: TimeSlotLiteral
-
-
-class Constraints(BaseModel):
-    OneTimeSlotPerClass: bool
-    TeacherConflict: bool
-    RoomConflict: bool
 
 
 class TimetableInput(BaseModel):
-    Classes: List[ClassLiteral]
-    TimeSlots: List[TimeSlotLiteral]
-    Teachers: List[TeacherLiteral]
-    Classrooms: List[ClassroomLiteral]
-    Constraints: Constraints
-    ForcedAssignments: Optional[List[ForcedAssignment]] = None
+    Classes: List[str]
+    TimeSlots: List[str]
+    Teachers: List[str]
+    Classrooms: List[str]
 
 
 class TimetableInputSchema(BaseModel):
@@ -70,55 +21,6 @@ model = ConcreteModel()
 
 
 def create_and_solve_timetable_model(data):
-    # IMPORTANT: TO MODIFY ENSURE YOU WRITE THE MODEL MATHEMATICALLY, MAKE CHANGES MATHEMATICALLY, ENSURE THE MODEL IS EFFICIENT MATHEMATICALLY THEN IMPLEMENT.
-    # ALWAYS WRITE THE CURRENT MATHEMATICAL MODEL HERE:
-    # Mathematical Model:
-    # Sets:
-    # C: Set of classes
-    # T: Set of time slots
-    # E: Set of teachers
-    # R: Set of classrooms
-
-    # Decision Variables:
-    # x[c,t] = 1 if class c is assigned to time slot t, 0 otherwise
-    # y[e,t] = 1 if teacher e is teaching in time slot t, 0 otherwise
-    # z[c,t,e] = 1 if class c is assigned to time slot t and teacher e, 0 otherwise
-    # w[c,t,r] = 1 if class c is assigned to time slot t and classroom r, 0 otherwise
-    # teacher_assignment[c,e] = 1 if teacher e is assigned to class c, 0 otherwise
-    # room_assignment[c,r] = 1 if classroom r is assigned to class c, 0 otherwise
-    # first[e]: First time slot for teacher e
-    # last[e]: Last time slot for teacher e
-
-    # Objective:
-    # Minimize sum(last[e] - first[e] for e in E)
-
-    # Constraints:
-    # 1. Each class must be assigned exactly one time slot:
-    #    sum(x[c,t] for t in T) = 1 for all c in C
-    # 2. Each class must be assigned exactly one teacher:
-    #    sum(teacher_assignment[c,e] for e in E) = 1 for all c in C
-    # 3. Each class must be assigned exactly one room:
-    #    sum(room_assignment[c,r] for r in R) = 1 for all c in C
-    # 4. No teacher conflicts:
-    #    sum(z[c,t,e] for c in C) <= 1 for all t in T, e in E
-    # 5. No room conflicts:
-    #    sum(w[c,t,r] for c in C) <= 1 for all t in T, r in R
-    # 6. Linking constraints for z:
-    #    z[c,t,e] <= x[c,t] for all c in C, t in T, e in E
-    #    z[c,t,e] <= teacher_assignment[c,e] for all c in C, t in T, e in E
-    #    z[c,t,e] >= x[c,t] + teacher_assignment[c,e] - 1 for all c in C, t in T, e in E
-    # 7. Linking constraints for w:
-    #    w[c,t,r] <= x[c,t] for all c in C, t in T, r in R
-    #    w[c,t,r] <= room_assignment[c,r] for all c in C, t in T, r in R
-    #    w[c,t,r] >= x[c,t] + room_assignment[c,r] - 1 for all c in C, t in T, r in R
-    # 8. Linking x and y:
-    #    sum(z[c,t,e] for c in C) >= y[e,t] for all e in E, t in T
-    # 9. Defining first and last time slots for each teacher:
-    #    first[e] <= t + (1 - y[e,t]) * |T| for all e in E, t in T
-    #    last[e] >= t - (1 - y[e,t]) * |T| for all e in E, t in T
-    # ----------------------------------------
-    # ENSURE THE ABOVE MODEL AND THE CODE ARE COMPLETELY CONSISTENT.
-
     # Create a model
     model = ConcreteModel()
 
@@ -143,14 +45,12 @@ def create_and_solve_timetable_model(data):
 
     # Constraints
     # 1. Each class must be assigned exactly one time slot
-    if data["Constraints"]["OneTimeSlotPerClass"]:
+    def one_time_slot_per_class_rule(model, c):
+        return sum(model.x[c, t] for t in model.TimeSlots) == 1
 
-        def one_time_slot_per_class_rule(model, c):
-            return sum(model.x[c, t] for t in model.TimeSlots) == 1
-
-        model.one_time_slot_per_class = Constraint(
-            model.Classes, rule=one_time_slot_per_class_rule
-        )
+    model.one_time_slot_per_class = Constraint(
+        model.Classes, rule=one_time_slot_per_class_rule
+    )
 
     # 2. Each class must be assigned exactly one teacher
     def one_teacher_per_class_rule(model, c):
@@ -169,14 +69,12 @@ def create_and_solve_timetable_model(data):
     model.one_room_per_class = Constraint(model.Classes, rule=one_room_per_class_rule)
 
     # 4. No two classes that share a common teacher can be in the same time slot
-    if data["Constraints"]["TeacherConflict"]:
+    def teacher_conflict_rule(model, t, teacher):
+        return sum(model.z[c, t, teacher] for c in model.Classes) <= 1
 
-        def teacher_conflict_rule(model, t, teacher):
-            return sum(model.z[c, t, teacher] for c in model.Classes) <= 1
-
-        model.teacher_conflict = Constraint(
-            model.TimeSlots, model.Teachers, rule=teacher_conflict_rule
-        )
+    model.teacher_conflict = Constraint(
+        model.TimeSlots, model.Teachers, rule=teacher_conflict_rule
+    )
 
     # Link z with x and teacher_assignment
     def link_z_with_x_and_teacher_rule1(model, c, t, teacher):
@@ -213,14 +111,12 @@ def create_and_solve_timetable_model(data):
     )
 
     # 5. No two classes that share a common classroom can be in the same time slot
-    if data["Constraints"]["RoomConflict"]:
+    def room_conflict_rule(model, t, room):
+        return sum(model.w[c, t, room] for c in model.Classes) <= 1
 
-        def room_conflict_rule(model, t, room):
-            return sum(model.w[c, t, room] for c in model.Classes) <= 1
-
-        model.room_conflict = Constraint(
-            model.TimeSlots, model.Classrooms, rule=room_conflict_rule
-        )
+    model.room_conflict = Constraint(
+        model.TimeSlots, model.Classrooms, rule=room_conflict_rule
+    )
 
     # Link w with x and room_assignment
     def link_w_with_x_and_room_rule1(model, c, t, room):
@@ -252,23 +148,6 @@ def create_and_solve_timetable_model(data):
         model.Classrooms,
         rule=link_w_with_x_and_room_rule3,
     )
-
-    # 6. Force specific classes into specific time slots
-    if "ForcedAssignments" in data and data["ForcedAssignments"]:
-
-        def force_assignment_rule(model, c, t):
-            forced_assignments = {
-                entry["classId"]: entry["timeslot"]
-                for entry in data["ForcedAssignments"]
-            }
-            if c in forced_assignments and forced_assignments[c] == t:
-                return model.x[c, t] == 1
-            else:
-                return Constraint.Skip
-
-        model.force_assignment = Constraint(
-            model.Classes, model.TimeSlots, rule=force_assignment_rule
-        )
 
     # Link x and y: y[e, t] should be 1 if any class taught by teacher e is at time slot t
     def link_x_y_rule(model, e, t):
@@ -398,15 +277,6 @@ if __name__ == "__main__":
         "TimeSlots": ["T1", "T2", "T3", "T4", "T5", "T6", "T7"],
         "Teachers": ["Teacher1", "Teacher2", "Teacher3", "Teacher4", "Teacher5"],
         "Classrooms": ["Room1", "Room2", "Room3", "Room4"],
-        "Constraints": {
-            "OneTimeSlotPerClass": True,
-            "TeacherConflict": True,
-            "RoomConflict": True,
-        },
-        "ForcedAssignments": [
-            # {"classId": "C1", "timeslot": "T1"},  # Force C1 to be in T1
-            # {"classId": "C2", "timeslot": "T2"},  # Force C2 to be in T2
-        ],
     }
 
     # Call the function with the data
