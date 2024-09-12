@@ -269,15 +269,19 @@ def check_for_nonlinearity(code: str) -> bool:
     # This is a basic implementation and may need to be expanded
     # to cover all possible cases of nonlinearity
     nonlinear_patterns = [
-        r'\w+\s*\*\s*\w+',  # Multiplication of variables
-        r'\w+\s*/\s*\w+',  # Division by variables
-        r'exp\(', r'log\(', r'sqrt\(',  # Exponential, logarithmic, and square root functions
-        r'abs\(',  # Absolute value function
-        r'\w+\s*\*\*\s*\d+',  # Power functions (e.g., x**2)
+        r'\b\w+\s*\*\s*\w+\b',  # Multiplication of variables
+        r'\b\w+\s*/\s*\w+\b',  # Division by variables
+        r'\bexp\(', r'\blog\(', r'\bsqrt\(',  # Exponential, logarithmic, and square root functions
+        r'\babs\(',  # Absolute value function
+        r'\b\w+\s*\*\*\s*\d+',  # Power functions (e.g., x**2)
     ]
     
+    # Remove comments and import statements
+    code_lines = [line.split('#')[0] for line in code.split('\n') if not line.strip().startswith(('import', 'from'))]
+    cleaned_code = ' '.join(code_lines)
+    
     for pattern in nonlinear_patterns:
-        match = re.search(pattern, code)
+        match = re.search(pattern, cleaned_code)
         if match:
             print(f"DEBUG: Nonlinearity detected: {match.group(0)} matches pattern {pattern}")
             return True
