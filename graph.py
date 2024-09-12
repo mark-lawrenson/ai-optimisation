@@ -21,7 +21,7 @@ import click
 TERMINAL_LEVEL_WIDTH = 10
 # Configure loguru
 logger.remove()
-logger.add(sys.stderr, format="<level>{level}</level> | {message}", level="INFO")
+logger.add(sys.stderr, format="<level>{level: <10}</level> | {message}", level="INFO")
 logger.add("debug_graph.log", rotation="500 MB", level="DEBUG")
 
 # Add custom log levels for user input and assistant messages
