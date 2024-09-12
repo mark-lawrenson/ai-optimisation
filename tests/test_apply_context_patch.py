@@ -1,4 +1,10 @@
 import pytest
+import sys
+import os
+
+# Ensure the directory containing graph.py is in the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from graph import apply_context_patch, PatchingError
 
 def test_basic_patch():
