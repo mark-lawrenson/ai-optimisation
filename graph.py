@@ -23,8 +23,9 @@ logger.remove()
 logger.add(sys.stderr, format="<level>{level}</level> | {message}", level="INFO")
 logger.add("debug_graph.log", rotation="500 MB", level="DEBUG")
 
-# Add custom log level for user input
+# Add custom log levels for user input and assistant messages
 logger.level("USER INPUT", no=15, color="<cyan>")
+logger.level("ASSISTANT", no=25, color="<green>")
 
 MAX_TOKENS = 10000  # Truncating history to this tokens
 REQUESTS_PER_SECOND = 0.5
@@ -370,30 +371,30 @@ def main(model):
     graph = graph_builder.compile(checkpointer=memory)
     state = {"messages": [system_message]}
     interaction_count = 0
-    logger.info("Welcome to the AI Optimization Assistant!")
-    logger.info("You can ask questions about the timetable optimization model, request changes, or run the optimizer.")
-    logger.info("Type 'quit', 'exit', or 'q' to end the session.")
+    logger.log("ASSISTANT", "Welcome to the AI Optimization Assistant!")
+    logger.log("ASSISTANT", "You can ask questions about the timetable optimization model, request changes, or run the optimizer.")
+    logger.log("ASSISTANT", "Type 'quit', 'exit', or 'q' to end the session.")
     while True:
         config = {"configurable": {"thread_id": "1"}}
-        logger.info("Enter your question or command:")
+        logger.log("ASSISTANT", "Enter your question or command:")
         user_input = input()
         logger.log("USER INPUT", f"User: {user_input}")
         if user_input.lower() in ["quit", "exit", "q"]:
-            logger.info("Goodbye!")
+            logger.log("ASSISTANT", "Goodbye!")
             break
         state["messages"].append({"role": "user", "content": user_input})
         for event in graph.stream(state, config=config):
             for key, value in event.items():
                 if key == "chatbot":
-                    logger.info(f"Assistant: {value['messages'][-1].content}")
+                    logger.log("ASSISTANT", f"Assistant: {value['messages'][-1].content}")
                 elif key == "tools":
                     if value["messages"][-1].name != "read_model":
-                        logger.info(f"Tool Result: {value['messages'][-1].content}")
+                        logger.log("ASSISTANT", f"Tool Result: {value['messages'][-1].content}")
                     else:
                         logger.info("Tool Result: Model read.")
         state = event["chatbot"]
         interaction_count += 1
-        logger.info(f"Interaction {interaction_count} completed. Press Enter to continue...")
+        logger.log("ASSISTANT", f"Interaction {interaction_count} completed. Press Enter to continue...")
         input()
 
 
