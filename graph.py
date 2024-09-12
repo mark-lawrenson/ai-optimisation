@@ -271,7 +271,12 @@ def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
 
 
 @click.command()
-@click.option('--model', type=click.Choice(['claude', 'gpt']), default='claude', help='Select the model to use (claude or gpt)')
+@click.option(
+    "--model",
+    type=click.Choice(["claude", "gpt"]),
+    default="claude",
+    help="Select the model to use (claude or gpt)",
+)
 def main(model):
     memory = MemorySaver()
     rate_limiter = InMemoryRateLimiter(requests_per_second=REQUESTS_PER_SECOND)
@@ -279,7 +284,7 @@ def main(model):
     tools = [read_model, patch_model, time_table_optimiser]
     tool_node = ToolNode(tools)
 
-    if model == 'claude':
+    if model == "claude":
         llm = ChatAnthropic(
             model="claude-3-5-sonnet-20240620",
             max_tokens_to_sample=4096,
@@ -287,7 +292,7 @@ def main(model):
         )
     else:  # gpt
         llm = ChatOpenAI(
-            model="gpt-4-turbo-preview",
+            model="gpt-4o",
             max_tokens=4096,
             rate_limiter=rate_limiter,
         )
