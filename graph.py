@@ -231,13 +231,6 @@ def patch_model(patch: str) -> str:
 
         logger.debug("New code after patching:\n{}", new_code)
 
-        # Check for nonlinearity
-        nonlinear = check_for_nonlinearity(new_code)
-        logger.debug("Nonlinearity check result: {}", nonlinear)
-
-        if nonlinear:
-            return "Error: The proposed changes introduce nonlinearity into the model. Please revise the changes to maintain linearity."
-
         # Parse the new code to check for syntax errors
         ast.parse(new_code)
 
@@ -264,42 +257,6 @@ def patch_model(patch: str) -> str:
     except Exception as e:
         logger.error("Error modifying the model: {}", str(e))
         return f"Error modifying the model: {str(e)}"
-
-def check_for_nonlinearity(code: str) -> bool:
-    """Check if the given code introduces nonlinearity into the Pyomo model."""
-    # This implementation focuses on Pyomo-specific nonlinear operations
-    nonlinear_patterns = [
-        r'model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?\s*\*\s*model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?',  # Multiplication of Pyomo variables
-        r'model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?\s*/\s*model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?',  # Division by Pyomo variables
-        r'exp\(\s*model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?\s*\)',  # Exponential function with Pyomo variable
-        r'log\(\s*model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?\s*\)',  # Logarithmic function with Pyomo variable
-        r'sqrt\(\s*model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?\s*\)',  # Square root function with Pyomo variable
-        r'abs\(\s*model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?\s*\)',  # Absolute value function with Pyomo variable
-        r'model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?\s*\*\*\s*\d+',  # Power functions with Pyomo variable (e.g., model.x**2)
-        r'sin\(\s*model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?\s*\)',  # Trigonometric functions with Pyomo variable
-        r'cos\(\s*model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?\s*\)',
-        r'tan\(\s*model\.\w+(?!\.value)(?:\[[\w\s,\-+]*\])?\s*\)',
-    ]
-    
-    # Remove comments and import statements
-    code_lines = [line.split('#')[0] for line in code.split('\n') if not line.strip().startswith(('import', 'from'))]
-    cleaned_code = ' '.join(code_lines)
-    
-    for pattern in nonlinear_patterns:
-        matches = re.finditer(pattern, cleaned_code)
-        for match in matches:
-            logger.debug("Nonlinearity detected: {} matches pattern {}", match.group(0), pattern)
-            return True
-    
-    # Additional check for multiplication of indexed variables
-    indexed_var_multiplication = r'model\.\w+(?:\[[\w\s,\-+]*\])?\s*\*\s*model\.\w+(?:\[[\w\s,\-+]*\])?'
-    if re.search(indexed_var_multiplication, cleaned_code):
-        logger.debug("Nonlinearity detected: Multiplication of indexed variables")
-        return True
-    
-    logger.debug("No nonlinearity detected")
-    return False
-
 
 # Tool to write the model code
 @tool
@@ -485,19 +442,4 @@ if __name__ == "__main__":
                     else:
                         print("Tool Result: Model read.")
         state = event["chatbot"]
-def check_for_nonlinearity(code: str) -> bool:
-    """Check if the given code introduces nonlinearity into the model."""
-    # This is a basic implementation and may need to be expanded
-    # to cover all possible cases of nonlinearity
-    nonlinear_patterns = [
-        r'\w+\s*\*\s*\w+',  # Multiplication of variables
-        r'\w+\s*/\s*\w+',  # Division by variables
-        r'exp\(', r'log\(', r'sqrt\(',  # Exponential, logarithmic, and square root functions
-        r'abs\(',  # Absolute value function
-        r'\w+\s*\*\*\s*\d+',  # Power functions (e.g., x**2)
-    ]
-    
-    for pattern in nonlinear_patterns:
-        if re.search(pattern, code):
-            return True
-    return False
+# End of file
