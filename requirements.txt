@@ -7,3 +7,5 @@ highspy
 thefuzz
 tiktoken
 loguru==0.7.2
+pytest==7.4.0
+pytest-mock==3.11.1

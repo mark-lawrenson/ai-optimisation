@@ -27,8 +27,6 @@ rate_limiter = InMemoryRateLimiter(requests_per_second=0.5)
 
 MAX_TOKENS = 10000  # Truncating history to this tokens
 
-# TODO: Use claude prompt caching? Keep trying to improve token usage.
-
 system_prompt = """
 You are an assistant specializing in linear optimization models for timetable scheduling. Your role is to help users interact with and modify a Mixed Integer Linear Programming (MILP) model for timetable optimization.
 
@@ -63,30 +61,22 @@ When modifying the model:
 Remember: Maintaining linearity is crucial. Always prioritize this constraint in your suggestions and implementations. If you cannot find a linear way to implement a requested feature, explain the limitations and suggest alternative approaches that maintain linearity.
 """
 
-
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
-
 def num_tokens_from_messages(messages, model="gpt-4o"):
     """Return the number of tokens used by a list of messages."""
-    # NOTE: This uses tiktoken which is for openai models, might be good enough?
     encoding = tiktoken.encoding_for_model(model)
     num_tokens = 0
     for message in messages:
-        num_tokens += (
-            4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
-        )
+        num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
         num_tokens += len(encoding.encode(str(message.content)))
     num_tokens += 2  # every reply is primed with <im_start>assistant
     return num_tokens
 
-
 class PatchingError(ValueError):
     """Custom exception for invalid patching inputs."""
-
     pass
-
 
 def find_best_match(lines: List[str], context: List[str], threshold: int = 80) -> int:
     """Find the best match for a context in the lines using a sliding window approach."""
@@ -102,7 +92,6 @@ def find_best_match(lines: List[str], context: List[str], threshold: int = 80) -
 
     return best_index if best_score >= threshold else -1
 
-
 def apply_context_patch(original: str, patch: str) -> str:
     """Apply a context-based patch to the original text."""
     lines = original.splitlines()
@@ -113,66 +102,35 @@ def apply_context_patch(original: str, patch: str) -> str:
     while i < len(patch_lines):
         line = patch_lines[i].strip()
         if line.startswith("<<<"):
-            # Extract context and changes
-            context = []
-            changes = []
+            context, changes = [], []
             i += 1
             try:
-                while i < len(patch_lines) and not patch_lines[i].strip().startswith(
-                    "---"
-                ):
+                while i < len(patch_lines) and not patch_lines[i].strip().startswith("---"):
                     context.append(patch_lines[i])
                     i += 1
                 i += 1  # Skip the '---' line
-                while i < len(patch_lines) and not patch_lines[i].strip().startswith(
-                    ">>>"
-                ):
+                while i < len(patch_lines) and not patch_lines[i].strip().startswith(">>>"):
                     changes.append(patch_lines[i])
                     i += 1
                 i += 1  # Skip the '>>>' line
             except IndexError:
-                raise PatchingError(
-                    f"Error: Malformed patch. Unexpected end of patch data at line {i}"
-                )
+                raise PatchingError(f"Error: Malformed patch. Unexpected end of patch data at line {i}")
 
-            # Find the best match for the context
             best_match = find_best_match(lines, context)
-
-            # Handle indentation
-            def get_min_leading_spaces(lines):
-                return min(
-                    (len(line) - len(line.lstrip()) for line in lines), default=0
-                )
-
-            min_leading_spaces_original = get_min_leading_spaces(
-                lines[best_match : best_match + len(context)]
-            )
-            min_leading_spaces_changes = get_min_leading_spaces(changes)
-
-            # Add indentation to changes
-            additional_indentation = max(
-                0, min_leading_spaces_original - min_leading_spaces_changes
-            )
-            changes = [" " * additional_indentation + change for change in changes]
-
             if best_match != -1:
-                # Apply the changes
                 result.extend(lines[:best_match])
                 result.extend(changes)
-                result.extend(lines[best_match + len(context) :])
+                result.extend(lines[best_match + len(context):])
                 lines = result
                 result = []
             else:
-                raise PatchingError(
-                    f"Error: Couldn't find a match for context:\n{' '.join(context)}"
-                )
+                raise PatchingError(f"Error: Couldn't find a match for context:\n{' '.join(context)}")
         else:
             result.append(line)
         i += 1
 
     result.extend(lines)
     return "\n".join(result)
-
 
 def apply_context_patches(original_code, patches):
     combined_patch_lines = patches.splitlines()
@@ -195,32 +153,18 @@ def apply_context_patches(original_code, patches):
 
     patched_code = original_code
     for i, patch_lines in enumerate(split_patchlines):
-        print(f"Applying patch {i + 1}")
+        logger.debug(f"Applying patch {i + 1}")
         patched_code = apply_context_patch(patched_code, "\n".join(patch_lines))
 
     return patched_code
 
-
 @tool
 def patch_model(patch: str) -> str:
-    """Patch the timetable optimization model code using a context-based patch format.
-    Please use the following format for each change
-    ```
-    <<<
-    [complete lines to find in the code]
-    ---
-    [new code to replace the found lines entirely]
-    >>>
-    ```
-    Make multiple changes by using the above format repeatedly in the input, prefer to make multiple smaller changes over one larger change.
-    Keep the find and replace blocks as short as possible to implement the desired changes.
-    DO NOT INCLUDE ANY PLACEHOLDERS IN THE NEW CODE!!!
-    """
+    """Patch the timetable optimization model code using a context-based patch format."""
     try:
         with open("model.py", "r") as f:
             original_code = f.read()
 
-        # Write the new code to model.py
         with open("model.patch", "w") as f:
             f.write(patch)
 
@@ -231,14 +175,11 @@ def patch_model(patch: str) -> str:
 
         logger.debug("New code after patching:\n{}", new_code)
 
-        # Parse the new code to check for syntax errors
         ast.parse(new_code)
 
-        # Write the new code to model.py
         with open("model.py", "w") as f:
             f.write(new_code)
 
-        # Reload the module
         if "model" in sys.modules:
             logger.debug("Model module found in sys.modules, reloading it.")
             del sys.modules["model"]
@@ -258,20 +199,15 @@ def patch_model(patch: str) -> str:
         logger.error("Error modifying the model: {}", str(e))
         return f"Error modifying the model: {str(e)}"
 
-# Tool to write the model code
 @tool
 def write_model(new_code: str) -> str:
     """Write the timetable optimization model code."""
     try:
-
-        # Write the new code to model.py
         with open("model.py", "w") as f:
             f.write(new_code)
 
-        # Reload the module
         if "model" in sys.modules:
-            print("DEBUG: Model module found in sys.modules, reloading it.")
-            # Remove the module from the system cache to ensure it's reloaded
+            logger.debug("Model module found in sys.modules, reloading it.")
             del sys.modules["model"]
         spec = importlib.util.spec_from_file_location("model", "model.py")
         module = importlib.util.module_from_spec(spec)
@@ -284,8 +220,6 @@ def write_model(new_code: str) -> str:
     except Exception as e:
         return f"Error modifying the model: {str(e)}"
 
-
-# Tool to read the model code
 @tool
 def read_model() -> str:
     """Read the current timetable optimization model code."""
@@ -296,22 +230,16 @@ def read_model() -> str:
     except Exception as e:
         return f"Error reading the model: {str(e)}"
 
-
-# Tool to optimize the timetable
 @tool(args_schema=model.TimetableInputSchema)
 def time_table_optimiser(input: model.TimetableInput) -> str:
-    """Optimise the timetable
-    When displaying output always include the pretty tables"""
+    """Optimise the timetable"""
     try:
         import model as model_run
-
         data = input.model_dump()
         return model_run.create_and_solve_timetable_model(data)
     except Exception as e:
         return f"Error optimizing the timetable: {str(e)}. input was {input}"
 
-
-# Now bind these functions to ToolNodes
 tools = [read_model, patch_model, time_table_optimiser]
 tool_node = ToolNode(tools)
 
@@ -322,50 +250,33 @@ llm = ChatAnthropic(
 )
 llm_with_tools = llm.bind_tools(tools)
 
-
 def chatbot(state: State):
     messages = state["messages"]
-    # print("messages")
-    # for msg in messages:
-    #     print(msg.type, msg.name)
-    # Always keep the system message
-    kept_messages = [messages[0]]
+    kept_messages = [messages[0]]  # Always keep the system message
 
-    # Find the last read_model message
     last_read_model_index = None
     for i in range(len(messages) - 1, 0, -1):
         if messages[i].name == "read_model":
-            last_read_model_index = i - 1  # Find the tool usage message
+            last_read_model_index = i - 1
             break
 
-    # Add messages from the start, skipping previous read_model pairs
     i = 1
     while i < len(messages) - 1:
         if messages[i].type == "ai" and messages[i + 1].type == "tool":
             if messages[i + 1].name == "read_model" and i != last_read_model_index:
-                i += 2  # Skip this read_model pair
+                i += 2
             else:
-                kept_messages.extend(
-                    messages[i : i + 2]
-                )  # Keep the ai tool use and tool_result pair
+                kept_messages.extend(messages[i : i + 2])
                 i += 2
         else:
             kept_messages.append(messages[i])
             i += 1
     if messages[-1].type != "tool":
-        kept_messages.append(
-            messages[-1]
-        )  # Append the last message if it's not a tool use
-    # print("kept_messages after read skipping")
-    # for msg in kept_messages:
-    #     print(msg.type, msg.name)
-    # Count tokens and truncate if necessary
+        kept_messages.append(messages[-1])
+
     message_index_to_drop = 2
     while num_tokens_from_messages(kept_messages) > MAX_TOKENS:
-        if (
-            len(kept_messages) > 6
-        ):  # Keep system message, first user message last read_model pair (if any), and latest 2 messages
-            # TODO: Improve this so that it drops old user messages while ensuring the first message after system is a user message
+        if len(kept_messages) > 6:
             if (
                 kept_messages[message_index_to_drop + 1].type == "tool"
                 and kept_messages[message_index_to_drop + 1].name == "read_model"
@@ -384,19 +295,15 @@ def chatbot(state: State):
         else:
             break
     logger.debug("Kept messages after truncation: {}", [(msg.type, msg.name) for msg in kept_messages])
-    # Generate response
+
     try:
         response = llm_with_tools.invoke(kept_messages)
     except Exception as e:
-        # TODO: Put handling of hitting anthropic rate limit here
         logger.error("Error invoking model: {}", str(e))
         raise e
 
-    # Update state with the new response
     new_messages = messages + [response]
-
     return {"messages": new_messages}
-
 
 def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
     messages = state["messages"]
@@ -405,20 +312,13 @@ def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
         return "tools"
     return "__end__"
 
-
 system_message = {"role": "system", "content": system_prompt}
 
 graph_builder = StateGraph(State)
-
 graph_builder.add_node("chatbot", chatbot)
 graph_builder.add_node("tools", tool_node)
-
-graph_builder.add_conditional_edges(
-    "chatbot",
-    should_continue,
-)
+graph_builder.add_conditional_edges("chatbot", should_continue)
 graph_builder.add_edge("tools", "chatbot")
-
 graph_builder.set_entry_point("chatbot")
 graph = graph_builder.compile(checkpointer=memory)
 initial_state = {"messages": [system_message]}
@@ -442,4 +342,3 @@ if __name__ == "__main__":
                     else:
                         print("Tool Result: Model read.")
         state = event["chatbot"]
-# End of file
