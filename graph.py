@@ -1,4 +1,5 @@
 from typing import Annotated, List, Literal
+import tiktoken
 from typing_extensions import TypedDict
 
 from langchain_anthropic import ChatAnthropic
@@ -20,14 +21,42 @@ from thefuzz import fuzz
 
 memory = MemorySaver()
 
-# TODO: Use claude caching
+MAX_TOKENS = 6000  # Truncating history to this tokens
+
+# TODO: Use claude prompt caching? Keep trying to improve token usage.
 
 system_prompt = """
-You are an assistant that helps users interact with optimisation models.
-In particular you have a timetable optimisation tool, as well as the capability to read and edit the code of this optimisation model.
-When changing the model, you must first think about the changes you want to make to the mathematical model, summarise the new mathematical model, then implement the changes in code.
-The mathematical model can only be MILP, it does not suport general expressions or nonlinearity at all.
-When implementing changes in code ensure you patch the code using the current version of the code - reread the code if necessary.
+You are an assistant specializing in linear optimization models for timetable scheduling. Your role is to help users interact with and modify a Mixed Integer Linear Programming (MILP) model for timetable optimization.
+
+Key points to remember:
+1. The model must always remain linear. Do not introduce any nonlinear elements.
+2. Only use linear constraints and objective functions.
+3. When suggesting changes, first describe the mathematical modifications, then implement them in code.
+4. Always verify that your suggestions maintain linearity in the model.
+
+Common linear operations:
+- Addition and subtraction of variables
+- Multiplication of variables by constants
+- Sum of variables (e.g., sum(x[i] for i in range(n)))
+- Linear equalities and inequalities (e.g., x + y <= 5)
+
+Forbidden nonlinear operations:
+- Multiplication of variables (e.g., x * y)
+- Division by variables
+- Exponential or logarithmic functions
+- Absolute value functions
+- Quadratic or higher-order polynomials
+
+When modifying the model:
+1. Clearly state the proposed changes in mathematical notation.
+2. Explain how these changes maintain linearity.
+3. READ THE MODEL CODE TO ENSURE THAT YOUR CHANGES ARE VALID
+4. Provide the diff to implement the changes to patch_model
+5. Double-check that all constraints and objectives remain linear.
+
+If a user request would result in a nonlinear model, explain why it's not possible and suggest linear alternatives if available.
+
+Remember: Maintaining linearity is crucial. Always prioritize this constraint in your suggestions and implementations.
 """
 
 
@@ -35,7 +64,18 @@ class State(TypedDict):
     messages: Annotated[list, add_messages]
 
 
-graph_builder = StateGraph(State)
+def num_tokens_from_messages(messages, model="gpt-4o"):
+    """Return the number of tokens used by a list of messages."""
+    # TODO: This uses tiktoken which is for openai models, might be good enough?
+    encoding = tiktoken.encoding_for_model(model)
+    num_tokens = 0
+    for message in messages:
+        num_tokens += (
+            4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+        )
+        num_tokens += len(encoding.encode(str(message.content)))
+    num_tokens += 2  # every reply is primed with <im_start>assistant
+    return num_tokens
 
 
 class PatchingError(ValueError):
@@ -94,24 +134,20 @@ def apply_context_patch(original: str, patch: str) -> str:
             # Find the best match for the context
             best_match = find_best_match(lines, context)
 
-            # deal with indentation
-            # Figure out the least indented common across the best match
-            min_leading_spaces_original = 999
-            for l in lines[best_match : best_match + len(context)]:
-                min_leading_spaces_original = min(
-                    min_leading_spaces_original, len(l) - len(l.lstrip(" "))
+            # Handle indentation
+            def get_min_leading_spaces(lines):
+                return min(
+                    (len(line) - len(line.lstrip()) for line in lines), default=0
                 )
 
-            # Figure out the least indented common across the best match
-            min_leading_spaces_changes = 999
-            for l in changes:
-                min_leading_spaces_changes = min(
-                    min_leading_spaces_changes, len(l) - len(l.lstrip(" "))
-                )
+            min_leading_spaces_original = get_min_leading_spaces(
+                lines[best_match : best_match + len(context)]
+            )
+            min_leading_spaces_changes = get_min_leading_spaces(changes)
 
             # Add indentation to changes
-            additional_indentation = (
-                min_leading_spaces_original - min_leading_spaces_changes
+            additional_indentation = max(
+                0, min_leading_spaces_original - min_leading_spaces_changes
             )
             changes = [" " * additional_indentation + change for change in changes]
 
@@ -124,7 +160,7 @@ def apply_context_patch(original: str, patch: str) -> str:
                 result = []
             else:
                 raise PatchingError(
-                    f"Error: Couldn't find a match for context:\n{context}"
+                    f"Error: Couldn't find a match for context:\n{' '.join(context)}"
                 )
         else:
             result.append(line)
@@ -135,19 +171,29 @@ def apply_context_patch(original: str, patch: str) -> str:
 
 
 def apply_context_patches(original_code, patches):
-    # Split the patches up and call apply_context_patch on each of them
     combined_patch_lines = patches.splitlines()
-    if not combined_patch_lines[0].startswith("<<<"):
+    if not combined_patch_lines[0].strip().startswith("<<<"):
         raise PatchingError("Error: Malformed Patch, did not start with <<<")
-    split_patchlines = list()
+
+    split_patchlines = []
+    current_patch = []
+
     for line in combined_patch_lines:
-        if line.startswith("<<<"):
-            split_patchlines.append([])
-        split_patchlines[-1].append(line)
+        if line.strip().startswith("<<<"):
+            if current_patch:
+                split_patchlines.append(current_patch)
+            current_patch = [line]
+        elif current_patch:
+            current_patch.append(line)
+
+    if current_patch:
+        split_patchlines.append(current_patch)
+
     patched_code = original_code
     for i, patch_lines in enumerate(split_patchlines):
-        print(f"Patching patch {i}")
+        print(f"Applying patch {i + 1}")
         patched_code = apply_context_patch(patched_code, "\n".join(patch_lines))
+
     return patched_code
 
 
@@ -176,9 +222,9 @@ def patch_model(patch: str) -> str:
 
         new_code = apply_context_patches(original_code, patch)
 
-        # Write the new code to model.py
-        with open("model_patched.py", "w") as f:
-            f.write(new_code)
+        # # Write the new code to model.py
+        # with open("model_patched.py", "w") as f:
+        #     f.write(new_code)
 
         # Parse the new code to check for syntax errors
         ast.parse(new_code)
@@ -239,8 +285,6 @@ def read_model() -> str:
     try:
         with open("model.py", "r") as f:
             code = f.read()
-        with open("model_read.py", "w") as f:
-            f.write(code)
         return code
     except Exception as e:
         return f"Error reading the model: {str(e)}"
@@ -266,15 +310,81 @@ tool_node = ToolNode(tools)
 
 llm = ChatAnthropic(
     model="claude-3-5-sonnet-20240620",
-    max_tokens_to_sample=8192,
-    model_kwargs=dict(system=system_prompt),
+    max_tokens_to_sample=4096,
 )
-# llm = ChatOpenAI(model="gpt-4o")
 llm_with_tools = llm.bind_tools(tools)
 
 
 def chatbot(state: State):
-    return {"messages": [llm_with_tools.invoke(state["messages"])]}
+    messages = state["messages"]
+    print("messages")
+    for msg in messages:
+        print(msg.type, msg.name)
+    # Always keep the system message
+    kept_messages = [messages[0]]
+
+    # Find the last read_model message
+    last_read_model_index = None
+    for i in range(len(messages) - 1, 0, -1):
+        if messages[i].name == "read_model":
+            last_read_model_index = i - 1  # Find the tool usage message
+            break
+
+    # Add messages from the start, skipping previous read_model pairs
+    i = 1
+    while i < len(messages) - 1:
+        if messages[i].type == "ai" and messages[i + 1].type == "tool":
+            if messages[i + 1].name == "read_model" and i != last_read_model_index:
+                i += 2  # Skip this read_model pair
+            else:
+                kept_messages.extend(
+                    messages[i : i + 2]
+                )  # Keep the ai tool use and tool_result pair
+                i += 2
+        else:
+            kept_messages.append(messages[i])
+            i += 1
+    if messages[-1].type != "tool":
+        kept_messages.append(
+            messages[-1]
+        )  # Append the last message if it's not a tool use
+    print("kept_messages after read skipping")
+    for msg in kept_messages:
+        print(msg.type, msg.name)
+    # Count tokens and truncate if necessary
+    message_index_to_drop = 2
+    while num_tokens_from_messages(kept_messages) > MAX_TOKENS:
+        if (
+            len(kept_messages) > 5
+        ):  # Keep system message, first user message last read_model pair (if any), and latest user message
+            # TODO: IMprove this so that it drops old user messages while ensuring the first message after system is a user message
+            if (
+                kept_messages[message_index_to_drop + 1].type == "tool"
+                and kept_messages[message_index_to_drop + 1].name == "read_model"
+            ):
+                print("NOT dropping read_model pair")
+                message_index_to_drop += 2
+            elif kept_messages[message_index_to_drop + 1].type == "tool":
+                kept_messages = (
+                    kept_messages[:message_index_to_drop]
+                    + kept_messages[message_index_to_drop + 2 :]
+                )
+                print("Dropping tool use pair")
+            else:
+                kept_messages.pop(message_index_to_drop)
+                print("Dropping message")
+        else:
+            break
+    print("kept_messages after truncation")
+    for msg in kept_messages:
+        print(msg.type, msg.name)
+    # Generate response
+    response = llm_with_tools.invoke(kept_messages)
+
+    # Update state with the new response
+    new_messages = messages + [response]
+
+    return {"messages": new_messages}
 
 
 def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
@@ -285,9 +395,12 @@ def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
     return "__end__"
 
 
+system_message = {"role": "system", "content": system_prompt}
+
+graph_builder = StateGraph(State)
+
 graph_builder.add_node("chatbot", chatbot)
 graph_builder.add_node("tools", tool_node)
-
 
 graph_builder.add_conditional_edges(
     "chatbot",
@@ -297,15 +410,18 @@ graph_builder.add_edge("tools", "chatbot")
 
 graph_builder.set_entry_point("chatbot")
 graph = graph_builder.compile(checkpointer=memory)
+initial_state = {"messages": [system_message]}
 
 if __name__ == "__main__":
+    state = initial_state
     while True:
         config = {"configurable": {"thread_id": "1"}}
         user_input = input("User: ")
         if user_input.lower() in ["quit", "exit", "q"]:
             print("Goodbye!")
             break
-        for event in graph.stream({"messages": [("user", user_input)]}, config=config):
+        state["messages"].append({"role": "user", "content": user_input})
+        for event in graph.stream(state, config=config):
             for key, value in event.items():
                 if key == "chatbot":
                     print("Assistant:", value["messages"][-1].content)
@@ -314,3 +430,4 @@ if __name__ == "__main__":
                         print("Tool Result:", value["messages"][-1].content)
                     else:
                         print("Tool Result: Model read.")
+        state = event["chatbot"]
