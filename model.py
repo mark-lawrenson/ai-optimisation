@@ -45,6 +45,7 @@ def create_and_solve_timetable_model(data):
     model.z = Var(model.Classes, model.TimeSlots, model.Teachers, domain=Binary)
     model.w = Var(model.Classes, model.TimeSlots, model.Classrooms, domain=Binary)
     model.max_classes_per_teacher = Var(domain=NonNegativeIntegers)
+    model.room_changes = Var(model.Teachers, domain=NonNegativeIntegers)
 
     # Constraints
     # 1. Each class must be assigned exactly one time slot
@@ -158,11 +159,21 @@ def create_and_solve_timetable_model(data):
 
     model.balance_teacher_workload = Constraint(model.Teachers, rule=balance_teacher_workload_rule)
 
-    # Objective: Minimize the number of time slots used and balance teacher workload
-    def minimize_time_slots_and_balance_workload(model):
-        return sum(model.x[c, t] * t for c in model.Classes for t in model.TimeSlots) + model.max_classes_per_teacher
+    # Constraint to minimize room changes for each teacher
+    def minimize_room_changes_rule(model, teacher):
+        return model.room_changes[teacher] >= sum(
+            model.room_assignment[c1, room1] * model.room_assignment[c2, room2] * model.teacher_assignment[c1, teacher] * model.teacher_assignment[c2, teacher]
+            for c1 in model.Classes for c2 in model.Classes for room1 in model.Classrooms for room2 in model.Classrooms
+            if c1 != c2 and room1 != room2
+        )
 
-    model.objective = Objective(rule=minimize_time_slots_and_balance_workload, sense=minimize)
+    model.minimize_room_changes = Constraint(model.Teachers, rule=minimize_room_changes_rule)
+
+    # Objective: Minimize the number of time slots used, balance teacher workload, and minimize room changes
+    def minimize_time_slots_balance_workload_and_room_changes(model):
+        return sum(model.x[c, t] * t for c in model.Classes for t in model.TimeSlots) + model.max_classes_per_teacher + sum(model.room_changes[teacher] for teacher in model.Teachers)
+
+    model.objective = Objective(rule=minimize_time_slots_balance_workload_and_room_changes, sense=minimize)
 
     # Solve the model
     solver = Highs()
