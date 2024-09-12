@@ -370,8 +370,12 @@ def main(model):
     graph = graph_builder.compile(checkpointer=memory)
     state = {"messages": [system_message]}
     interaction_count = 0
+    logger.info("Welcome to the AI Optimization Assistant!")
+    logger.info("You can ask questions about the timetable optimization model, request changes, or run the optimizer.")
+    logger.info("Type 'quit', 'exit', or 'q' to end the session.")
     while True:
         config = {"configurable": {"thread_id": "1"}}
+        logger.info("Enter your question or command:")
         user_input = input()
         logger.log("USER INPUT", f"User: {user_input}")
         if user_input.lower() in ["quit", "exit", "q"]:
