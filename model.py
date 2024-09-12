@@ -145,6 +145,7 @@ def create_and_solve_timetable_model(data):
     )
 
     # Objective: Minimize the number of time slots used
+    # This objective function aims to schedule classes as early as possible
     def minimize_time_slots(model):
         return sum(model.x[c, t] * t for c in model.Classes for t in model.TimeSlots)
 
