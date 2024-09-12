@@ -265,15 +265,19 @@ def patch_model(patch: str) -> str:
         return f"Error modifying the model: {str(e)}"
 
 def check_for_nonlinearity(code: str) -> bool:
-    """Check if the given code introduces nonlinearity into the model."""
-    # This is a basic implementation and may need to be expanded
-    # to cover all possible cases of nonlinearity
+    """Check if the given code introduces nonlinearity into the Pyomo model."""
+    # This implementation focuses on Pyomo-specific nonlinear operations
     nonlinear_patterns = [
-        r'\b\w+\s*\*\s*\w+\b',  # Multiplication of variables
-        r'\b\w+\s*/\s*\w+\b',  # Division by variables
-        r'\bexp\(', r'\blog\(', r'\bsqrt\(',  # Exponential, logarithmic, and square root functions
-        r'\babs\(',  # Absolute value function
-        r'\b\w+\s*\*\*\s*\d+',  # Power functions (e.g., x**2)
+        r'model\.\w+\s*\*\s*model\.\w+',  # Multiplication of Pyomo variables
+        r'model\.\w+\s*/\s*model\.\w+',  # Division by Pyomo variables
+        r'exp\(\s*model\.\w+\s*\)',  # Exponential function with Pyomo variable
+        r'log\(\s*model\.\w+\s*\)',  # Logarithmic function with Pyomo variable
+        r'sqrt\(\s*model\.\w+\s*\)',  # Square root function with Pyomo variable
+        r'abs\(\s*model\.\w+\s*\)',  # Absolute value function with Pyomo variable
+        r'model\.\w+\s*\*\*\s*\d+',  # Power functions with Pyomo variable (e.g., model.x**2)
+        r'sin\(\s*model\.\w+\s*\)',  # Trigonometric functions with Pyomo variable
+        r'cos\(\s*model\.\w+\s*\)',
+        r'tan\(\s*model\.\w+\s*\)',
     ]
     
     # Remove comments and import statements
