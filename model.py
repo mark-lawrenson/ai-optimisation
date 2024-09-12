@@ -193,8 +193,8 @@ def create_and_solve_timetable_model(data):
             room_class = ""
             for c in model.Classes:
                 if (
-                    model.x[c, t].value == 1
-                    and model.room_assignment[c, room].value == 1
+                    model.x[c, t].value > 0.5
+                    and model.room_assignment[c, room].value > 0.5
                 ):
                     room_class = c
                     break
@@ -211,13 +211,13 @@ def create_and_solve_timetable_model(data):
             room_teacher = ""
             for c in model.Classes:
                 if (
-                    model.x[c, t].value == 1
-                    and model.room_assignment[c, room].value == 1
+                    model.x[c, t].value > 0.5
+                    and model.room_assignment[c, room].value > 0.5
                 ):
                     room_teacher = [
                         teacher
                         for teacher in model.Teachers
-                        if model.teacher_assignment[c, teacher].value == 1
+                        if model.teacher_assignment[c, teacher].value > 0.5
                     ][0]
                     break
             row.append(room_teacher)
@@ -236,7 +236,23 @@ def create_and_solve_timetable_model(data):
 # Example usage with the updated data structure:
 if __name__ == "__main__":
     data = {
-        "Classes": ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+        "Classes": [
+            "C1",
+            "C2",
+            "C3",
+            "C4",
+            "C5",
+            "C6",
+            "C7",
+            "C8",
+            "C9",
+            "C10",
+            "C11",
+            "C12",
+            "C13",
+            "C14",
+            "C15",
+        ],
         "TimeSlots": ["T1", "T2", "T3", "T4", "T5", "T6", "T7"],
         "Teachers": ["Teacher1", "Teacher2", "Teacher3", "Teacher4", "Teacher5"],
         "Classrooms": ["Room1", "Room2", "Room3", "Room4"],
