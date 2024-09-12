@@ -20,7 +20,7 @@ import click
 
 # Configure loguru
 logger.remove()
-logger.add(sys.stderr, level="INFO")
+logger.add(sys.stderr, format="{message}", level="INFO")
 logger.add("debug_graph.log", rotation="500 MB", level="DEBUG")
 
 MAX_TOKENS = 10000  # Truncating history to this tokens
@@ -366,24 +366,26 @@ def main(model):
     graph_builder.set_entry_point("chatbot")
     graph = graph_builder.compile(checkpointer=memory)
     state = {"messages": [system_message]}
+    checkpoint_counter = 0
     while True:
         config = {"configurable": {"thread_id": "1"}}
-        user_input = input("User: ")
+        user_input = input("\nUser: ")
         if user_input.lower() in ["quit", "exit", "q"]:
-            logger.info("Goodbye!")
+            print("\nGoodbye!")
             break
         state["messages"].append({"role": "user", "content": user_input})
         for event in graph.stream(state, config=config):
             for key, value in event.items():
                 if key == "chatbot":
-                    logger.info("Assistant: {}", value["messages"][-1].content)
+                    print(f"\nAssistant: {value['messages'][-1].content}")
                 elif key == "tools":
                     if value["messages"][-1].name != "read_model":
-                        logger.info("Tool Result: {}", value["messages"][-1].content)
+                        print(f"\nTool Result: {value['messages'][-1].content}")
                     else:
-                        logger.info("Tool Result: Model read.")
+                        print("\nTool Result: Model read.")
         state = event["chatbot"]
-        input("Press enter to continue")
+        checkpoint_counter += 1
+        input(f"\nCheckpoint {checkpoint_counter} reached. Press Enter to continue...")
 
 
 if __name__ == "__main__":
