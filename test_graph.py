@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from graph import apply_context_patch, apply_context_patches, find_best_match, PatchingError
 from graph import patch_model, read_model, time_table_optimiser
+from model import TimetableInput
 
 def test_find_best_match():
     lines = ["apple", "banana", "cherry", "date"]
