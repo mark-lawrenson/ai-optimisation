@@ -18,7 +18,6 @@ from thefuzz import fuzz
 from loguru import logger
 import click
 
-TERMINAL_LEVEL_WIDTH = 10
 # Configure loguru
 logger.remove()
 logger.add(sys.stderr, format="<level>{level: <10}</level> | {message}", level="INFO")
@@ -135,8 +134,28 @@ def apply_context_patch(original: str, patch: str) -> str:
                     f"Error: Malformed patch. Unexpected end of patch data at line {i}"
                 )
 
+            # Find the best match for the context
             best_match = find_best_match(lines, context)
+
+            # Handle indentation
+            def get_min_leading_spaces(lines):
+                return min(
+                    (len(line) - len(line.lstrip()) for line in lines), default=0
+                )
+
+            min_leading_spaces_original = get_min_leading_spaces(
+                lines[best_match : best_match + len(context)]
+            )
+            min_leading_spaces_changes = get_min_leading_spaces(changes)
+
+            # Add indentation to changes
+            additional_indentation = max(
+                0, min_leading_spaces_original - min_leading_spaces_changes
+            )
+            changes = [" " * additional_indentation + change for change in changes]
+
             if best_match != -1:
+                # Apply the changes
                 result.extend(lines[:best_match])
                 result.extend(changes)
                 result.extend(lines[best_match + len(context) :])
@@ -183,7 +202,18 @@ def apply_context_patches(original_code, patches):
 
 @tool
 def patch_model(patch: str) -> str:
-    """Patch the timetable optimization model code using a context-based patch format."""
+    """Patch the timetable optimization model code using a context-based patch format.
+    Please use the following format for each change
+    ```
+    <<<
+    [complete lines to find in the code]
+    ---
+    [new code to replace the found lines entirely]
+    >>>
+    ```
+    Make multiple changes by using the above format repeatedly in the input, prefer to make multiple smaller changes over one larger change.
+    Keep the find and replace blocks as short as possible to implement the desired changes.
+    """
     try:
         with open("model.py", "r") as f:
             original_code = f.read()
@@ -225,7 +255,8 @@ def patch_model(patch: str) -> str:
 
 @tool
 def write_model(new_code: str) -> str:
-    """Write the timetable optimization model code."""
+    """Optimise the timetable
+    When displaying output always include the pretty tables"""
     try:
         with open("model.py", "w") as f:
             f.write(new_code)
@@ -372,7 +403,6 @@ def main(model):
     graph_builder.set_entry_point("chatbot")
     graph = graph_builder.compile(checkpointer=memory)
     state = {"messages": [system_message]}
-    interaction_count = 0
     logger.log("ASSISTANT", "Welcome to the AI Optimization Assistant!")
     logger.log(
         "ASSISTANT",
@@ -398,12 +428,6 @@ def main(model):
                     else:
                         logger.info("Tool Result: Model read.")
         state = event["chatbot"]
-        interaction_count += 1
-        logger.log(
-            "REQUEST",
-            f"Interaction {interaction_count} completed. Press Enter to continue...",
-        )
-        input()
 
 
 if __name__ == "__main__":

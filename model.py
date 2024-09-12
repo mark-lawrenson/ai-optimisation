@@ -9,8 +9,9 @@ import sys
 
 # Configure loguru
 logger.remove()
-logger.add(sys.stderr, level="INFO")
+logger.add(sys.stderr, format="<level>{level: <10}</level> | {message}", level="INFO")
 logger.add("debug_model.log", rotation="500 MB", level="DEBUG")
+
 
 class TimetableInput(BaseModel):
     Classes: List[str]
@@ -23,7 +24,7 @@ class TimetableInputSchema(BaseModel):
     input: TimetableInput
 
 
-# Create a model
+# Initialize the model
 model = ConcreteModel()
 
 
