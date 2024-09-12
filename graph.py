@@ -269,16 +269,17 @@ def check_for_nonlinearity(code: str) -> bool:
     """Check if the given code introduces nonlinearity into the Pyomo model."""
     # This implementation focuses on Pyomo-specific nonlinear operations
     nonlinear_patterns = [
-        r'model\.\w+(?!\.value)\s*\*\s*model\.\w+(?!\.value)',  # Multiplication of Pyomo variables
-        r'model\.\w+(?!\.value)\s*/\s*model\.\w+(?!\.value)',  # Division by Pyomo variables
-        r'exp\(\s*model\.\w+(?!\.value)\s*\)',  # Exponential function with Pyomo variable
-        r'log\(\s*model\.\w+(?!\.value)\s*\)',  # Logarithmic function with Pyomo variable
-        r'sqrt\(\s*model\.\w+(?!\.value)\s*\)',  # Square root function with Pyomo variable
-        r'abs\(\s*model\.\w+(?!\.value)\s*\)',  # Absolute value function with Pyomo variable
-        r'model\.\w+(?!\.value)\s*\*\*\s*\d+',  # Power functions with Pyomo variable (e.g., model.x**2)
-        r'sin\(\s*model\.\w+(?!\.value)\s*\)',  # Trigonometric functions with Pyomo variable
-        r'cos\(\s*model\.\w+(?!\.value)\s*\)',
-        r'tan\(\s*model\.\w+(?!\.value)\s*\)',
+        r'model\.\w+(?!\.value)(\[[\w\s,]*\])?\s*\*\s*model\.\w+(?!\.value)(\[[\w\s,]*\])?',  # Multiplication of Pyomo variables
+        r'model\.\w+(?!\.value)(\[[\w\s,]*\])?\s*/\s*model\.\w+(?!\.value)(\[[\w\s,]*\])?',  # Division by Pyomo variables
+        r'exp\(\s*model\.\w+(?!\.value)(\[[\w\s,]*\])?\s*\)',  # Exponential function with Pyomo variable
+        r'log\(\s*model\.\w+(?!\.value)(\[[\w\s,]*\])?\s*\)',  # Logarithmic function with Pyomo variable
+        r'sqrt\(\s*model\.\w+(?!\.value)(\[[\w\s,]*\])?\s*\)',  # Square root function with Pyomo variable
+        r'abs\(\s*model\.\w+(?!\.value)(\[[\w\s,]*\])?\s*\)',  # Absolute value function with Pyomo variable
+        r'model\.\w+(?!\.value)(\[[\w\s,]*\])?\s*\*\*\s*\d+',  # Power functions with Pyomo variable (e.g., model.x**2)
+        r'sin\(\s*model\.\w+(?!\.value)(\[[\w\s,]*\])?\s*\)',  # Trigonometric functions with Pyomo variable
+        r'cos\(\s*model\.\w+(?!\.value)(\[[\w\s,]*\])?\s*\)',
+        r'tan\(\s*model\.\w+(?!\.value)(\[[\w\s,]*\])?\s*\)',
+        r'model\.\w+(?!\.value)(\[[\w\s,]*\])?\s*\*\s*model\.\w+(?!\.value)(\[[\w\s,]*\])?',  # Multiplication of indexed Pyomo variables
     ]
     
     # Remove comments and import statements
@@ -286,8 +287,8 @@ def check_for_nonlinearity(code: str) -> bool:
     cleaned_code = ' '.join(code_lines)
     
     for pattern in nonlinear_patterns:
-        match = re.search(pattern, cleaned_code)
-        if match:
+        matches = re.finditer(pattern, cleaned_code)
+        for match in matches:
             logger.debug("Nonlinearity detected: {} matches pattern {}", match.group(0), pattern)
             return True
     logger.debug("No nonlinearity detected")
