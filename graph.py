@@ -3,6 +3,7 @@ import tiktoken
 from typing_extensions import TypedDict
 
 from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langgraph.graph import StateGraph, MessagesState
@@ -15,6 +16,7 @@ import model
 import ast
 from thefuzz import fuzz
 from loguru import logger
+import click
 
 # Configure loguru
 logger.remove()
@@ -268,18 +270,27 @@ def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
     return "__end__"
 
 
-def main():
+@click.command()
+@click.option('--model', type=click.Choice(['claude', 'gpt']), default='claude', help='Select the model to use (claude or gpt)')
+def main(model):
     memory = MemorySaver()
     rate_limiter = InMemoryRateLimiter(requests_per_second=REQUESTS_PER_SECOND)
 
     tools = [read_model, patch_model, time_table_optimiser]
     tool_node = ToolNode(tools)
 
-    llm = ChatAnthropic(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens_to_sample=4096,
-        rate_limiter=rate_limiter,
-    )
+    if model == 'claude':
+        llm = ChatAnthropic(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens_to_sample=4096,
+            rate_limiter=rate_limiter,
+        )
+    else:  # gpt
+        llm = ChatOpenAI(
+            model="gpt-4-turbo-preview",
+            max_tokens=4096,
+            rate_limiter=rate_limiter,
+        )
     llm_with_tools = llm.bind_tools(tools)
 
     def chatbot(state: State):
