@@ -44,6 +44,7 @@ def create_and_solve_timetable_model(data):
     model.room_assignment = Var(model.Classes, model.Classrooms, domain=Binary)
     model.z = Var(model.Classes, model.TimeSlots, model.Teachers, domain=Binary)
     model.w = Var(model.Classes, model.TimeSlots, model.Classrooms, domain=Binary)
+    model.max_classes_per_teacher = Var(domain=NonNegativeIntegers)
 
     # Constraints
     # 1. Each class must be assigned exactly one time slot
@@ -151,12 +152,17 @@ def create_and_solve_timetable_model(data):
         rule=link_w_with_x_and_room_rule3,
     )
 
-    # Objective: Minimize the number of time slots used
-    # This objective function aims to schedule classes as early as possible
-    def minimize_time_slots(model):
-        return sum(model.x[c, t] * t for c in model.Classes for t in model.TimeSlots)
+    # Constraint to balance teacher workload
+    def balance_teacher_workload_rule(model, teacher):
+        return sum(model.teacher_assignment[c, teacher] for c in model.Classes) <= model.max_classes_per_teacher
 
-    model.objective = Objective(rule=minimize_time_slots, sense=minimize)
+    model.balance_teacher_workload = Constraint(model.Teachers, rule=balance_teacher_workload_rule)
+
+    # Objective: Minimize the number of time slots used and balance teacher workload
+    def minimize_time_slots_and_balance_workload(model):
+        return sum(model.x[c, t] * t for c in model.Classes for t in model.TimeSlots) + model.max_classes_per_teacher
+
+    model.objective = Objective(rule=minimize_time_slots_and_balance_workload, sense=minimize)
 
     # Solve the model
     solver = Highs()
@@ -173,11 +179,13 @@ def create_and_solve_timetable_model(data):
         "objective_value": None,
         "best_objective_bound": None,
         "best_feasible_objective": None,
+        "max_classes_per_teacher": None,
     }
 
     debug_info["objective_value"] = value(model.objective)
     debug_info["best_objective_bound"] = results.best_objective_bound
     debug_info["best_feasible_objective"] = results.best_feasible_objective
+    debug_info["max_classes_per_teacher"] = value(model.max_classes_per_teacher)
 
     logger.debug("Solver results: {}", debug_info)
 
