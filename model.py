@@ -223,8 +223,8 @@ def create_and_solve_timetable_model(data):
             row.append(room_teacher)
         teacher_table.add_row(row)
 
-    logger.info("Room schedule:\n{}", room_table.get_string())
-    logger.info("Teacher schedule:\n{}", teacher_table.get_string())
+    logger.debug("Room schedule:\n{}", room_table.get_string())
+    logger.debug("Teacher schedule:\n{}", teacher_table.get_string())
 
     return {
         "room_table": room_table.get_string(),

@@ -89,7 +89,7 @@ class PatchingError(ValueError):
     pass
 
 
-def find_best_match(lines: List[str], context: List[str], threshold: int = 80) -> int:
+def find_best_match(lines: List[str], context: List[str], threshold: int = 90) -> int:
     """Find the best match for a context in the lines using a sliding window approach."""
     best_score = 0
     best_index = -1
@@ -146,11 +146,11 @@ def apply_context_patch(original: str, patch: str) -> str:
             min_leading_spaces_original = get_min_leading_spaces(
                 lines[best_match : best_match + len(context)]
             )
-            min_leading_spaces_changes = get_min_leading_spaces(changes)
+            min_leading_spaces_context = get_min_leading_spaces(context)
 
             # Add indentation to changes
             additional_indentation = max(
-                0, min_leading_spaces_original - min_leading_spaces_changes
+                0, min_leading_spaces_original - min_leading_spaces_context
             )
             changes = [" " * additional_indentation + change for change in changes]
 
@@ -170,7 +170,7 @@ def apply_context_patch(original: str, patch: str) -> str:
         i += 1
 
     result.extend(lines)
-    return "\n".join(result)
+    return "\n".join(result) + "\n"
 
 
 def apply_context_patches(original_code, patches):
@@ -212,7 +212,7 @@ def patch_model(patch: str) -> str:
     >>>
     ```
     Make multiple changes by using the above format repeatedly in the input, prefer to make multiple smaller changes over one larger change.
-    Keep the find and replace blocks as short as possible to implement the desired changes.
+    Keep the find and replace blocks as short as possible to implement the desired changes. BUT ENSURE THE FIND BLOCK IS ENOUGH TO BE UNIQUE.
     """
     try:
         with open("model.py", "r") as f:
