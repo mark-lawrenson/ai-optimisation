@@ -21,10 +21,8 @@ logger.remove()
 logger.add(sys.stderr, level="INFO")
 logger.add("debug_graph.log", rotation="500 MB", level="DEBUG")
 
-memory = MemorySaver()
-rate_limiter = InMemoryRateLimiter(requests_per_second=0.5)
-
 MAX_TOKENS = 10000  # Truncating history to this tokens
+REQUESTS_PER_SECOND = 0.5
 
 system_prompt = """
 You are an assistant specializing in linear optimization models for timetable scheduling. Your role is to help users interact with and modify a Mixed Integer Linear Programming (MILP) model for timetable optimization.
@@ -262,76 +260,6 @@ def time_table_optimiser(input: model.TimetableInput) -> str:
         return f"Error optimizing the timetable: {str(e)}. input was {input}"
 
 
-tools = [read_model, patch_model, time_table_optimiser]
-tool_node = ToolNode(tools)
-
-llm = ChatAnthropic(
-    model="claude-3-5-sonnet-20240620",
-    max_tokens_to_sample=4096,
-    rate_limiter=rate_limiter,
-)
-llm_with_tools = llm.bind_tools(tools)
-
-
-def chatbot(state: State):
-    messages = state["messages"]
-    kept_messages = [messages[0]]  # Always keep the system message
-
-    last_read_model_index = None
-    for i in range(len(messages) - 1, 0, -1):
-        if messages[i].name == "read_model":
-            last_read_model_index = i - 1
-            break
-
-    i = 1
-    while i < len(messages) - 1:
-        if messages[i].type == "ai" and messages[i + 1].type == "tool":
-            if messages[i + 1].name == "read_model" and i != last_read_model_index:
-                i += 2
-            else:
-                kept_messages.extend(messages[i : i + 2])
-                i += 2
-        else:
-            kept_messages.append(messages[i])
-            i += 1
-    if messages[-1].type != "tool":
-        kept_messages.append(messages[-1])
-
-    message_index_to_drop = 2
-    while num_tokens_from_messages(kept_messages) > MAX_TOKENS:
-        if len(kept_messages) > 6:
-            if (
-                kept_messages[message_index_to_drop + 1].type == "tool"
-                and kept_messages[message_index_to_drop + 1].name == "read_model"
-            ):
-                logger.debug("NOT dropping read_model pair")
-                message_index_to_drop += 2
-            elif kept_messages[message_index_to_drop + 1].type == "tool":
-                kept_messages = (
-                    kept_messages[:message_index_to_drop]
-                    + kept_messages[message_index_to_drop + 2 :]
-                )
-                logger.debug("Dropping tool use pair")
-            else:
-                kept_messages.pop(message_index_to_drop)
-                logger.debug("Dropping message")
-        else:
-            break
-    logger.debug(
-        "Kept messages after truncation: {}",
-        [(msg.type, msg.name) for msg in kept_messages],
-    )
-
-    try:
-        response = llm_with_tools.invoke(kept_messages)
-    except Exception as e:
-        logger.error("Error invoking model: {}", str(e))
-        raise e
-
-    new_messages = messages + [response]
-    return {"messages": new_messages}
-
-
 def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
     messages = state["messages"]
     last_message = messages[-1]
@@ -340,19 +268,88 @@ def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
     return "__end__"
 
 
-system_message = {"role": "system", "content": system_prompt}
+def main():
+    memory = MemorySaver()
+    rate_limiter = InMemoryRateLimiter(requests_per_second=REQUESTS_PER_SECOND)
 
-graph_builder = StateGraph(State)
-graph_builder.add_node("chatbot", chatbot)
-graph_builder.add_node("tools", tool_node)
-graph_builder.add_conditional_edges("chatbot", should_continue)
-graph_builder.add_edge("tools", "chatbot")
-graph_builder.set_entry_point("chatbot")
-graph = graph_builder.compile(checkpointer=memory)
-initial_state = {"messages": [system_message]}
+    tools = [read_model, patch_model, time_table_optimiser]
+    tool_node = ToolNode(tools)
 
-if __name__ == "__main__":
-    state = initial_state
+    llm = ChatAnthropic(
+        model="claude-3-5-sonnet-20240620",
+        max_tokens_to_sample=4096,
+        rate_limiter=rate_limiter,
+    )
+    llm_with_tools = llm.bind_tools(tools)
+
+    def chatbot(state: State):
+        messages = state["messages"]
+        kept_messages = [messages[0]]  # Always keep the system message
+
+        last_read_model_index = None
+        for i in range(len(messages) - 1, 0, -1):
+            if messages[i].name == "read_model":
+                last_read_model_index = i - 1
+                break
+
+        i = 1
+        while i < len(messages) - 1:
+            if messages[i].type == "ai" and messages[i + 1].type == "tool":
+                if messages[i + 1].name == "read_model" and i != last_read_model_index:
+                    i += 2
+                else:
+                    kept_messages.extend(messages[i : i + 2])
+                    i += 2
+            else:
+                kept_messages.append(messages[i])
+                i += 1
+        if messages[-1].type != "tool":
+            kept_messages.append(messages[-1])
+
+        message_index_to_drop = 2
+        while num_tokens_from_messages(kept_messages) > MAX_TOKENS:
+            if len(kept_messages) > 6:
+                if (
+                    kept_messages[message_index_to_drop + 1].type == "tool"
+                    and kept_messages[message_index_to_drop + 1].name == "read_model"
+                ):
+                    logger.debug("NOT dropping read_model pair")
+                    message_index_to_drop += 2
+                elif kept_messages[message_index_to_drop + 1].type == "tool":
+                    kept_messages = (
+                        kept_messages[:message_index_to_drop]
+                        + kept_messages[message_index_to_drop + 2 :]
+                    )
+                    logger.debug("Dropping tool use pair")
+                else:
+                    kept_messages.pop(message_index_to_drop)
+                    logger.debug("Dropping message")
+            else:
+                break
+        logger.debug(
+            "Kept messages after truncation: {}",
+            [(msg.type, msg.name) for msg in kept_messages],
+        )
+
+        try:
+            response = llm_with_tools.invoke(kept_messages)
+        except Exception as e:
+            logger.error("Error invoking model: {}", str(e))
+            raise e
+
+        new_messages = messages + [response]
+        return {"messages": new_messages}
+
+    system_message = {"role": "system", "content": system_prompt}
+
+    graph_builder = StateGraph(State)
+    graph_builder.add_node("chatbot", chatbot)
+    graph_builder.add_node("tools", tool_node)
+    graph_builder.add_conditional_edges("chatbot", should_continue)
+    graph_builder.add_edge("tools", "chatbot")
+    graph_builder.set_entry_point("chatbot")
+    graph = graph_builder.compile(checkpointer=memory)
+    state = {"messages": [system_message]}
     while True:
         config = {"configurable": {"thread_id": "1"}}
         user_input = input("User: ")
@@ -370,3 +367,8 @@ if __name__ == "__main__":
                     else:
                         logger.info("Tool Result: Model read.")
         state = event["chatbot"]
+        input("Press enter to continue")
+
+
+if __name__ == "__main__":
+    main()
