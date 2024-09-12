@@ -290,6 +290,13 @@ def check_for_nonlinearity(code: str) -> bool:
         for match in matches:
             logger.debug("Nonlinearity detected: {} matches pattern {}", match.group(0), pattern)
             return True
+    
+    # Additional check for multiplication of indexed variables
+    indexed_var_multiplication = r'model\.\w+(?:\[[\w\s,\-+]*\])?\s*\*\s*model\.\w+(?:\[[\w\s,\-+]*\])?'
+    if re.search(indexed_var_multiplication, cleaned_code):
+        logger.debug("Nonlinearity detected: Multiplication of indexed variables")
+        return True
+    
     logger.debug("No nonlinearity detected")
     return False
 
