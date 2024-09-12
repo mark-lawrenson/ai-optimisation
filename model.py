@@ -45,7 +45,9 @@ def create_and_solve_timetable_model(data):
     model.z = Var(model.Classes, model.TimeSlots, model.Teachers, domain=Binary)
     model.w = Var(model.Classes, model.TimeSlots, model.Classrooms, domain=Binary)
     model.max_classes_per_teacher = Var(domain=NonNegativeIntegers)
-    model.room_change_indicator = Var(model.Classes, model.Classes, model.Teachers, domain=Binary)
+    model.room_change_indicator = Var(
+        model.Classes, model.Classes, model.Teachers, domain=Binary
+    )
 
     # Constraints
     # 1. Each class must be assigned exactly one time slot
@@ -155,30 +157,64 @@ def create_and_solve_timetable_model(data):
 
     # Constraint to balance teacher workload
     def balance_teacher_workload_rule(model, teacher):
-        return sum(model.teacher_assignment[c, teacher] for c in model.Classes) <= model.max_classes_per_teacher
+        return (
+            sum(model.teacher_assignment[c, teacher] for c in model.Classes)
+            <= model.max_classes_per_teacher
+        )
 
-    model.balance_teacher_workload = Constraint(model.Teachers, rule=balance_teacher_workload_rule)
+    model.balance_teacher_workload = Constraint(
+        model.Teachers, rule=balance_teacher_workload_rule
+    )
 
     # Constraint to minimize room changes for each teacher
     def room_change_indicator_rule(model, c1, c2, teacher):
         if c1 == c2:
             return Constraint.Skip
-        return model.room_change_indicator[c1, c2, teacher] >= model.teacher_assignment[c1, teacher] + model.teacher_assignment[c2, teacher] - 1
+        return (
+            model.room_change_indicator[c1, c2, teacher]
+            >= model.teacher_assignment[c1, teacher]
+            + model.teacher_assignment[c2, teacher]
+            - 1
+        )
 
-    model.room_change_indicator_constraint = Constraint(model.Classes, model.Classes, model.Teachers, rule=room_change_indicator_rule)
+    model.room_change_indicator_constraint = Constraint(
+        model.Classes, model.Classes, model.Teachers, rule=room_change_indicator_rule
+    )
 
     def room_change_indicator_link_rule(model, c1, c2, room1, room2, teacher):
         if c1 == c2 or room1 == room2:
             return Constraint.Skip
-        return model.room_change_indicator[c1, c2, teacher] <= 2 - model.room_assignment[c1, room1] - model.room_assignment[c2, room2]
+        return (
+            model.room_change_indicator[c1, c2, teacher]
+            <= 2 - model.room_assignment[c1, room1] - model.room_assignment[c2, room2]
+        )
 
-    model.room_change_indicator_link = Constraint(model.Classes, model.Classes, model.Classrooms, model.Classrooms, model.Teachers, rule=room_change_indicator_link_rule)
+    model.room_change_indicator_link = Constraint(
+        model.Classes,
+        model.Classes,
+        model.Classrooms,
+        model.Classrooms,
+        model.Teachers,
+        rule=room_change_indicator_link_rule,
+    )
 
     # Objective: Minimize the number of time slots used, balance teacher workload, and minimize room changes
     def minimize_time_slots_balance_workload_and_room_changes(model):
-        return sum(model.x[c, t] * t for c in model.Classes for t in model.TimeSlots) + model.max_classes_per_teacher + sum(model.room_change_indicator[c1, c2, teacher] for c1 in model.Classes for c2 in model.Classes for teacher in model.Teachers if c1 != c2)
+        return (
+            sum(model.x[c, t] * t for c in model.Classes for t in model.TimeSlots)
+            + model.max_classes_per_teacher
+            + sum(
+                model.room_change_indicator[c1, c2, teacher]
+                for c1 in model.Classes
+                for c2 in model.Classes
+                for teacher in model.Teachers
+                if c1 != c2
+            )
+        )
 
-    model.objective = Objective(rule=minimize_time_slots_balance_workload_and_room_changes, sense=minimize)
+    model.objective = Objective(
+        rule=minimize_time_slots_balance_workload_and_room_changes, sense=minimize
+    )
 
     # Solve the model
     solver = Highs()
@@ -272,10 +308,6 @@ if __name__ == "__main__":
             "C9",
             "C10",
             "C11",
-            "C12",
-            "C13",
-            "C14",
-            "C15",
         ],
         "TimeSlots": ["T1", "T2", "T3", "T4", "T5", "T6", "T7"],
         "Teachers": ["Teacher1", "Teacher2", "Teacher3", "Teacher4", "Teacher5"],
