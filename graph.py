@@ -268,16 +268,16 @@ def check_for_nonlinearity(code: str) -> bool:
     """Check if the given code introduces nonlinearity into the Pyomo model."""
     # This implementation focuses on Pyomo-specific nonlinear operations
     nonlinear_patterns = [
-        r'model\.\w+\s*\*\s*model\.\w+',  # Multiplication of Pyomo variables
-        r'model\.\w+\s*/\s*model\.\w+',  # Division by Pyomo variables
-        r'exp\(\s*model\.\w+\s*\)',  # Exponential function with Pyomo variable
-        r'log\(\s*model\.\w+\s*\)',  # Logarithmic function with Pyomo variable
-        r'sqrt\(\s*model\.\w+\s*\)',  # Square root function with Pyomo variable
-        r'abs\(\s*model\.\w+\s*\)',  # Absolute value function with Pyomo variable
-        r'model\.\w+\s*\*\*\s*\d+',  # Power functions with Pyomo variable (e.g., model.x**2)
-        r'sin\(\s*model\.\w+\s*\)',  # Trigonometric functions with Pyomo variable
-        r'cos\(\s*model\.\w+\s*\)',
-        r'tan\(\s*model\.\w+\s*\)',
+        r'model\.\w+(?!\.value)\s*\*\s*model\.\w+(?!\.value)',  # Multiplication of Pyomo variables
+        r'model\.\w+(?!\.value)\s*/\s*model\.\w+(?!\.value)',  # Division by Pyomo variables
+        r'exp\(\s*model\.\w+(?!\.value)\s*\)',  # Exponential function with Pyomo variable
+        r'log\(\s*model\.\w+(?!\.value)\s*\)',  # Logarithmic function with Pyomo variable
+        r'sqrt\(\s*model\.\w+(?!\.value)\s*\)',  # Square root function with Pyomo variable
+        r'abs\(\s*model\.\w+(?!\.value)\s*\)',  # Absolute value function with Pyomo variable
+        r'model\.\w+(?!\.value)\s*\*\*\s*\d+',  # Power functions with Pyomo variable (e.g., model.x**2)
+        r'sin\(\s*model\.\w+(?!\.value)\s*\)',  # Trigonometric functions with Pyomo variable
+        r'cos\(\s*model\.\w+(?!\.value)\s*\)',
+        r'tan\(\s*model\.\w+(?!\.value)\s*\)',
     ]
     
     # Remove comments and import statements
