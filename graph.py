@@ -6,6 +6,7 @@ from langchain_anthropic import ChatAnthropic
 
 # from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
+from langchain_core.rate_limiters import InMemoryRateLimiter
 from langgraph.graph import StateGraph, MessagesState
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -20,8 +21,9 @@ from thefuzz import fuzz
 # set_verbose(True)
 
 memory = MemorySaver()
+rate_limiter = InMemoryRateLimiter(requests_per_second=0.5)
 
-MAX_TOKENS = 6000  # Truncating history to this tokens
+MAX_TOKENS = 10000  # Truncating history to this tokens
 
 # TODO: Use claude prompt caching? Keep trying to improve token usage.
 
@@ -66,7 +68,7 @@ class State(TypedDict):
 
 def num_tokens_from_messages(messages, model="gpt-4o"):
     """Return the number of tokens used by a list of messages."""
-    # TODO: This uses tiktoken which is for openai models, might be good enough?
+    # NOTE: This uses tiktoken which is for openai models, might be good enough?
     encoding = tiktoken.encoding_for_model(model)
     num_tokens = 0
     for message in messages:
@@ -311,15 +313,16 @@ tool_node = ToolNode(tools)
 llm = ChatAnthropic(
     model="claude-3-5-sonnet-20240620",
     max_tokens_to_sample=4096,
+    rate_limiter=rate_limiter,
 )
 llm_with_tools = llm.bind_tools(tools)
 
 
 def chatbot(state: State):
     messages = state["messages"]
-    print("messages")
-    for msg in messages:
-        print(msg.type, msg.name)
+    # print("messages")
+    # for msg in messages:
+    #     print(msg.type, msg.name)
     # Always keep the system message
     kept_messages = [messages[0]]
 
@@ -348,16 +351,16 @@ def chatbot(state: State):
         kept_messages.append(
             messages[-1]
         )  # Append the last message if it's not a tool use
-    print("kept_messages after read skipping")
-    for msg in kept_messages:
-        print(msg.type, msg.name)
+    # print("kept_messages after read skipping")
+    # for msg in kept_messages:
+    #     print(msg.type, msg.name)
     # Count tokens and truncate if necessary
     message_index_to_drop = 2
     while num_tokens_from_messages(kept_messages) > MAX_TOKENS:
         if (
-            len(kept_messages) > 5
-        ):  # Keep system message, first user message last read_model pair (if any), and latest user message
-            # TODO: IMprove this so that it drops old user messages while ensuring the first message after system is a user message
+            len(kept_messages) > 6
+        ):  # Keep system message, first user message last read_model pair (if any), and latest 2 messages
+            # TODO: Improve this so that it drops old user messages while ensuring the first message after system is a user message
             if (
                 kept_messages[message_index_to_drop + 1].type == "tool"
                 and kept_messages[message_index_to_drop + 1].name == "read_model"
@@ -375,11 +378,16 @@ def chatbot(state: State):
                 print("Dropping message")
         else:
             break
-    print("kept_messages after truncation")
-    for msg in kept_messages:
-        print(msg.type, msg.name)
+    # print("kept_messages after truncation")
+    # for msg in kept_messages:
+    #     print(msg.type, msg.name)
     # Generate response
-    response = llm_with_tools.invoke(kept_messages)
+    try:
+        response = llm_with_tools.invoke(kept_messages)
+    except Exception as e:
+        # TODO: Put handling of hitting anthropic rate limit here
+        print(f"Error invoking model: {e}")
+        raise e
 
     # Update state with the new response
     new_messages = messages + [response]
