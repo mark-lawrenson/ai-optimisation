@@ -4,8 +4,6 @@ import tiktoken
 from typing_extensions import TypedDict
 
 from langchain_anthropic import ChatAnthropic
-
-# from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langgraph.graph import StateGraph, MessagesState
@@ -17,9 +15,12 @@ import sys
 import model
 import ast
 from thefuzz import fuzz
+from loguru import logger
 
-# set_debug(True)
-# set_verbose(True)
+# Configure loguru
+logger.remove()
+logger.add(sys.stderr, level="INFO")
+logger.add("file_{time}.log", rotation="500 MB", level="DEBUG")
 
 memory = MemorySaver()
 rate_limiter = InMemoryRateLimiter(requests_per_second=0.5)
@@ -223,19 +224,16 @@ def patch_model(patch: str) -> str:
         with open("model.patch", "w") as f:
             f.write(patch)
 
-        print("DEBUG: Original code:")
-        print(original_code)
-        print("DEBUG: Patch:")
-        print(patch)
+        logger.debug("Original code:\n{}", original_code)
+        logger.debug("Patch:\n{}", patch)
 
         new_code = apply_context_patches(original_code, patch)
 
-        print("DEBUG: New code after patching:")
-        print(new_code)
+        logger.debug("New code after patching:\n{}", new_code)
 
         # Check for nonlinearity
         nonlinear = check_for_nonlinearity(new_code)
-        print(f"DEBUG: Nonlinearity check result: {nonlinear}")
+        logger.debug("Nonlinearity check result: {}", nonlinear)
 
         if nonlinear:
             return "Error: The proposed changes introduce nonlinearity into the model. Please revise the changes to maintain linearity."
@@ -249,7 +247,7 @@ def patch_model(patch: str) -> str:
 
         # Reload the module
         if "model" in sys.modules:
-            print("DEBUG: Model module found in sys.modules, reloading it.")
+            logger.debug("Model module found in sys.modules, reloading it.")
             del sys.modules["model"]
         spec = importlib.util.spec_from_file_location("model", "model.py")
         module = importlib.util.module_from_spec(spec)
@@ -258,10 +256,13 @@ def patch_model(patch: str) -> str:
 
         return "Model successfully patched and reloaded."
     except SyntaxError as e:
+        logger.error("Syntax error in the new code: {}", str(e))
         return f"Syntax error in the new code: {str(e)}"
     except PatchingError as e:
+        logger.error("Error with the provided patch data: {}", str(e))
         return f"There was an error with the provided patch data: {str(e)}"
     except Exception as e:
+        logger.error("Error modifying the model: {}", str(e))
         return f"Error modifying the model: {str(e)}"
 
 def check_for_nonlinearity(code: str) -> bool:
@@ -287,9 +288,9 @@ def check_for_nonlinearity(code: str) -> bool:
     for pattern in nonlinear_patterns:
         match = re.search(pattern, cleaned_code)
         if match:
-            print(f"DEBUG: Nonlinearity detected: {match.group(0)} matches pattern {pattern}")
+            logger.debug("Nonlinearity detected: {} matches pattern {}", match.group(0), pattern)
             return True
-    print("DEBUG: No nonlinearity detected")
+    logger.debug("No nonlinearity detected")
     return False
 
 
@@ -405,28 +406,26 @@ def chatbot(state: State):
                 kept_messages[message_index_to_drop + 1].type == "tool"
                 and kept_messages[message_index_to_drop + 1].name == "read_model"
             ):
-                print("NOT dropping read_model pair")
+                logger.debug("NOT dropping read_model pair")
                 message_index_to_drop += 2
             elif kept_messages[message_index_to_drop + 1].type == "tool":
                 kept_messages = (
                     kept_messages[:message_index_to_drop]
                     + kept_messages[message_index_to_drop + 2 :]
                 )
-                print("Dropping tool use pair")
+                logger.debug("Dropping tool use pair")
             else:
                 kept_messages.pop(message_index_to_drop)
-                print("Dropping message")
+                logger.debug("Dropping message")
         else:
             break
-    # print("kept_messages after truncation")
-    # for msg in kept_messages:
-    #     print(msg.type, msg.name)
+    logger.debug("Kept messages after truncation: {}", [(msg.type, msg.name) for msg in kept_messages])
     # Generate response
     try:
         response = llm_with_tools.invoke(kept_messages)
     except Exception as e:
         # TODO: Put handling of hitting anthropic rate limit here
-        print(f"Error invoking model: {e}")
+        logger.error("Error invoking model: {}", str(e))
         raise e
 
     # Update state with the new response

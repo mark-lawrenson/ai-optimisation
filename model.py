@@ -4,7 +4,13 @@ from pydantic import BaseModel
 from typing import List
 from pyomo.contrib.appsi.solvers import Highs
 import time
+from loguru import logger
+import sys
 
+# Configure loguru
+logger.remove()
+logger.add(sys.stderr, level="INFO")
+logger.add("model_{time}.log", rotation="500 MB", level="DEBUG")
 
 class TimetableInput(BaseModel):
     Classes: List[str]
@@ -172,6 +178,8 @@ def create_and_solve_timetable_model(data):
     debug_info["best_objective_bound"] = results.best_objective_bound
     debug_info["best_feasible_objective"] = results.best_feasible_objective
 
+    logger.debug("Solver results: {}", debug_info)
+
     # Display results in a terminal table grid
     room_table = PrettyTable()
     room_names = sorted(list(model.Classrooms))
@@ -214,6 +222,9 @@ def create_and_solve_timetable_model(data):
             row.append(room_teacher)
         teacher_table.add_row(row)
 
+    logger.info("Room schedule:\n{}", room_table.get_string())
+    logger.info("Teacher schedule:\n{}", teacher_table.get_string())
+
     return {
         "room_table": room_table.get_string(),
         "teacher_table": teacher_table.get_string(),
@@ -232,5 +243,5 @@ if __name__ == "__main__":
 
     # Call the function with the data
     res = create_and_solve_timetable_model(data)
-    print(res["teacher_table"])
-    print(res)
+    logger.info("Teacher table:\n{}", res["teacher_table"])
+    logger.debug("Full results: {}", res)

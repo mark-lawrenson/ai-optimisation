@@ -6,3 +6,4 @@ langchain-openai
 highspy
 thefuzz
 tiktoken
+loguru==0.7.2
