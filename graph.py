@@ -31,10 +31,11 @@ system_prompt = """
 You are an assistant specializing in linear optimization models for timetable scheduling. Your role is to help users interact with and modify a Mixed Integer Linear Programming (MILP) model for timetable optimization.
 
 Key points to remember:
-1. The model must always remain linear. Do not introduce any nonlinear elements.
+1. The model must always remain linear. Do not introduce any nonlinear elements under any circumstances.
 2. Only use linear constraints and objective functions.
 3. When suggesting changes, first describe the mathematical modifications, then implement them in code.
 4. Always verify that your suggestions maintain linearity in the model.
+5. If a user request would result in a nonlinear model, explain why it's not possible and suggest linear alternatives if available.
 
 Common linear operations:
 - Addition and subtraction of variables
@@ -55,10 +56,9 @@ When modifying the model:
 3. READ THE MODEL CODE TO ENSURE THAT YOUR CHANGES ARE VALID
 4. Provide the diff to implement the changes to patch_model
 5. Double-check that all constraints and objectives remain linear.
+6. If you're unsure about the linearity of a proposed change, err on the side of caution and do not implement it.
 
-If a user request would result in a nonlinear model, explain why it's not possible and suggest linear alternatives if available.
-
-Remember: Maintaining linearity is crucial. Always prioritize this constraint in your suggestions and implementations.
+Remember: Maintaining linearity is crucial. Always prioritize this constraint in your suggestions and implementations. If you cannot find a linear way to implement a requested feature, explain the limitations and suggest alternative approaches that maintain linearity.
 """
 
 
@@ -224,9 +224,9 @@ def patch_model(patch: str) -> str:
 
         new_code = apply_context_patches(original_code, patch)
 
-        # # Write the new code to model.py
-        # with open("model_patched.py", "w") as f:
-        #     f.write(new_code)
+        # Check for nonlinearity
+        if check_for_nonlinearity(new_code):
+            return "Error: The proposed changes introduce nonlinearity into the model. Please revise the changes to maintain linearity."
 
         # Parse the new code to check for syntax errors
         ast.parse(new_code)
@@ -251,6 +251,8 @@ def patch_model(patch: str) -> str:
         return f"There was an error with the provided patch data: {str(e)}"
     except Exception as e:
         return f"Error modifying the model: {str(e)}"
+
+def check_for_nonline
 
 
 # Tool to write the model code
@@ -439,3 +441,19 @@ if __name__ == "__main__":
                     else:
                         print("Tool Result: Model read.")
         state = event["chatbot"]
+def check_for_nonlinearity(code: str) -> bool:
+    """Check if the given code introduces nonlinearity into the model."""
+    # This is a basic implementation and may need to be expanded
+    # to cover all possible cases of nonlinearity
+    nonlinear_patterns = [
+        r'\w+\s*\*\s*\w+',  # Multiplication of variables
+        r'\w+\s*/\s*\w+',  # Division by variables
+        r'exp\(', r'log\(', r'sqrt\(',  # Exponential, logarithmic, and square root functions
+        r'abs\(',  # Absolute value function
+        r'\w+\s*\*\*\s*\d+',  # Power functions (e.g., x**2)
+    ]
+    
+    for pattern in nonlinear_patterns:
+        if re.search(pattern, code):
+            return True
+    return False
