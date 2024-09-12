@@ -10,7 +10,7 @@ import sys
 # Configure loguru
 logger.remove()
 logger.add(sys.stderr, level="INFO")
-logger.add("model_{time}.log", rotation="500 MB", level="DEBUG")
+logger.add("debug_model.log", rotation="500 MB", level="DEBUG")
 
 class TimetableInput(BaseModel):
     Classes: List[str]

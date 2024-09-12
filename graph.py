@@ -20,7 +20,7 @@ from loguru import logger
 # Configure loguru
 logger.remove()
 logger.add(sys.stderr, level="INFO")
-logger.add("file_{time}.log", rotation="500 MB", level="DEBUG")
+logger.add("debug_file.log", rotation="500 MB", level="DEBUG")
 
 memory = MemorySaver()
 rate_limiter = InMemoryRateLimiter(requests_per_second=0.5)
@@ -329,16 +329,16 @@ if __name__ == "__main__":
         config = {"configurable": {"thread_id": "1"}}
         user_input = input("User: ")
         if user_input.lower() in ["quit", "exit", "q"]:
-            print("Goodbye!")
+            logger.info("Goodbye!")
             break
         state["messages"].append({"role": "user", "content": user_input})
         for event in graph.stream(state, config=config):
             for key, value in event.items():
                 if key == "chatbot":
-                    print("Assistant:", value["messages"][-1].content)
+                    logger.info("Assistant: {}", value["messages"][-1].content)
                 elif key == "tools":
                     if value["messages"][-1].name != "read_model":
-                        print("Tool Result:", value["messages"][-1].content)
+                        logger.info("Tool Result: {}", value["messages"][-1].content)
                     else:
-                        print("Tool Result: Model read.")
+                        logger.info("Tool Result: Model read.")
         state = event["chatbot"]
