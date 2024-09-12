@@ -223,10 +223,21 @@ def patch_model(patch: str) -> str:
         with open("model.patch", "w") as f:
             f.write(patch)
 
+        print("DEBUG: Original code:")
+        print(original_code)
+        print("DEBUG: Patch:")
+        print(patch)
+
         new_code = apply_context_patches(original_code, patch)
 
+        print("DEBUG: New code after patching:")
+        print(new_code)
+
         # Check for nonlinearity
-        if check_for_nonlinearity(new_code):
+        nonlinear = check_for_nonlinearity(new_code)
+        print(f"DEBUG: Nonlinearity check result: {nonlinear}")
+
+        if nonlinear:
             return "Error: The proposed changes introduce nonlinearity into the model. Please revise the changes to maintain linearity."
 
         # Parse the new code to check for syntax errors
@@ -266,8 +277,11 @@ def check_for_nonlinearity(code: str) -> bool:
     ]
     
     for pattern in nonlinear_patterns:
-        if re.search(pattern, code):
+        match = re.search(pattern, code)
+        if match:
+            print(f"DEBUG: Nonlinearity detected: {match.group(0)} matches pattern {pattern}")
             return True
+    print("DEBUG: No nonlinearity detected")
     return False
 
 
