@@ -20,8 +20,11 @@ import click
 
 # Configure loguru
 logger.remove()
-logger.add(sys.stderr, format="{message}", level="INFO")
+logger.add(sys.stderr, format="<level>{level}</level> | {message}", level="INFO")
 logger.add("debug_graph.log", rotation="500 MB", level="DEBUG")
+
+# Add custom log level for user input
+logger.level("USER INPUT", no=15, color="<cyan>")
 
 MAX_TOKENS = 10000  # Truncating history to this tokens
 REQUESTS_PER_SECOND = 0.5
@@ -366,26 +369,28 @@ def main(model):
     graph_builder.set_entry_point("chatbot")
     graph = graph_builder.compile(checkpointer=memory)
     state = {"messages": [system_message]}
-    checkpoint_counter = 0
+    interaction_count = 0
     while True:
         config = {"configurable": {"thread_id": "1"}}
-        user_input = input("\nUser: ")
+        user_input = input()
+        logger.log("USER INPUT", f"User: {user_input}")
         if user_input.lower() in ["quit", "exit", "q"]:
-            print("\nGoodbye!")
+            logger.info("Goodbye!")
             break
         state["messages"].append({"role": "user", "content": user_input})
         for event in graph.stream(state, config=config):
             for key, value in event.items():
                 if key == "chatbot":
-                    print(f"\nAssistant: {value['messages'][-1].content}")
+                    logger.info(f"Assistant: {value['messages'][-1].content}")
                 elif key == "tools":
                     if value["messages"][-1].name != "read_model":
-                        print(f"\nTool Result: {value['messages'][-1].content}")
+                        logger.info(f"Tool Result: {value['messages'][-1].content}")
                     else:
-                        print("\nTool Result: Model read.")
+                        logger.info("Tool Result: Model read.")
         state = event["chatbot"]
-        checkpoint_counter += 1
-        input(f"\nCheckpoint {checkpoint_counter} reached. Press Enter to continue...")
+        interaction_count += 1
+        logger.info(f"Interaction {interaction_count} completed. Press Enter to continue...")
+        input()
 
 
 if __name__ == "__main__":
