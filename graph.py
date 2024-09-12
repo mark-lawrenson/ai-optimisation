@@ -1,4 +1,3 @@
-import re
 from typing import Annotated, List, Literal
 import tiktoken
 from typing_extensions import TypedDict
@@ -20,7 +19,7 @@ from loguru import logger
 # Configure loguru
 logger.remove()
 logger.add(sys.stderr, level="INFO")
-logger.add("debug_file.log", rotation="500 MB", level="DEBUG")
+logger.add("debug_graph.log", rotation="500 MB", level="DEBUG")
 
 memory = MemorySaver()
 rate_limiter = InMemoryRateLimiter(requests_per_second=0.5)
@@ -61,22 +60,29 @@ When modifying the model:
 Remember: Maintaining linearity is crucial. Always prioritize this constraint in your suggestions and implementations. If you cannot find a linear way to implement a requested feature, explain the limitations and suggest alternative approaches that maintain linearity.
 """
 
+
 class State(TypedDict):
     messages: Annotated[list, add_messages]
+
 
 def num_tokens_from_messages(messages, model="gpt-4o"):
     """Return the number of tokens used by a list of messages."""
     encoding = tiktoken.encoding_for_model(model)
     num_tokens = 0
     for message in messages:
-        num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+        num_tokens += (
+            4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+        )
         num_tokens += len(encoding.encode(str(message.content)))
     num_tokens += 2  # every reply is primed with <im_start>assistant
     return num_tokens
 
+
 class PatchingError(ValueError):
     """Custom exception for invalid patching inputs."""
+
     pass
+
 
 def find_best_match(lines: List[str], context: List[str], threshold: int = 80) -> int:
     """Find the best match for a context in the lines using a sliding window approach."""
@@ -92,6 +98,7 @@ def find_best_match(lines: List[str], context: List[str], threshold: int = 80) -
 
     return best_index if best_score >= threshold else -1
 
+
 def apply_context_patch(original: str, patch: str) -> str:
     """Apply a context-based patch to the original text."""
     lines = original.splitlines()
@@ -105,32 +112,41 @@ def apply_context_patch(original: str, patch: str) -> str:
             context, changes = [], []
             i += 1
             try:
-                while i < len(patch_lines) and not patch_lines[i].strip().startswith("---"):
+                while i < len(patch_lines) and not patch_lines[i].strip().startswith(
+                    "---"
+                ):
                     context.append(patch_lines[i])
                     i += 1
                 i += 1  # Skip the '---' line
-                while i < len(patch_lines) and not patch_lines[i].strip().startswith(">>>"):
+                while i < len(patch_lines) and not patch_lines[i].strip().startswith(
+                    ">>>"
+                ):
                     changes.append(patch_lines[i])
                     i += 1
                 i += 1  # Skip the '>>>' line
             except IndexError:
-                raise PatchingError(f"Error: Malformed patch. Unexpected end of patch data at line {i}")
+                raise PatchingError(
+                    f"Error: Malformed patch. Unexpected end of patch data at line {i}"
+                )
 
             best_match = find_best_match(lines, context)
             if best_match != -1:
                 result.extend(lines[:best_match])
                 result.extend(changes)
-                result.extend(lines[best_match + len(context):])
+                result.extend(lines[best_match + len(context) :])
                 lines = result
                 result = []
             else:
-                raise PatchingError(f"Error: Couldn't find a match for context:\n{' '.join(context)}")
+                raise PatchingError(
+                    f"Error: Couldn't find a match for context:\n{' '.join(context)}"
+                )
         else:
             result.append(line)
         i += 1
 
     result.extend(lines)
     return "\n".join(result)
+
 
 def apply_context_patches(original_code, patches):
     combined_patch_lines = patches.splitlines()
@@ -157,6 +173,7 @@ def apply_context_patches(original_code, patches):
         patched_code = apply_context_patch(patched_code, "\n".join(patch_lines))
 
     return patched_code
+
 
 @tool
 def patch_model(patch: str) -> str:
@@ -199,6 +216,7 @@ def patch_model(patch: str) -> str:
         logger.error("Error modifying the model: {}", str(e))
         return f"Error modifying the model: {str(e)}"
 
+
 @tool
 def write_model(new_code: str) -> str:
     """Write the timetable optimization model code."""
@@ -220,6 +238,7 @@ def write_model(new_code: str) -> str:
     except Exception as e:
         return f"Error modifying the model: {str(e)}"
 
+
 @tool
 def read_model() -> str:
     """Read the current timetable optimization model code."""
@@ -230,15 +249,18 @@ def read_model() -> str:
     except Exception as e:
         return f"Error reading the model: {str(e)}"
 
+
 @tool(args_schema=model.TimetableInputSchema)
 def time_table_optimiser(input: model.TimetableInput) -> str:
     """Optimise the timetable"""
     try:
         import model as model_run
+
         data = input.model_dump()
         return model_run.create_and_solve_timetable_model(data)
     except Exception as e:
         return f"Error optimizing the timetable: {str(e)}. input was {input}"
+
 
 tools = [read_model, patch_model, time_table_optimiser]
 tool_node = ToolNode(tools)
@@ -249,6 +271,7 @@ llm = ChatAnthropic(
     rate_limiter=rate_limiter,
 )
 llm_with_tools = llm.bind_tools(tools)
+
 
 def chatbot(state: State):
     messages = state["messages"]
@@ -294,7 +317,10 @@ def chatbot(state: State):
                 logger.debug("Dropping message")
         else:
             break
-    logger.debug("Kept messages after truncation: {}", [(msg.type, msg.name) for msg in kept_messages])
+    logger.debug(
+        "Kept messages after truncation: {}",
+        [(msg.type, msg.name) for msg in kept_messages],
+    )
 
     try:
         response = llm_with_tools.invoke(kept_messages)
@@ -305,12 +331,14 @@ def chatbot(state: State):
     new_messages = messages + [response]
     return {"messages": new_messages}
 
+
 def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
     messages = state["messages"]
     last_message = messages[-1]
     if last_message.tool_calls:
         return "tools"
     return "__end__"
+
 
 system_message = {"role": "system", "content": system_prompt}
 
