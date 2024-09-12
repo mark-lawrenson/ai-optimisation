@@ -1,3 +1,4 @@
+import re
 from typing import Annotated, List, Literal
 import tiktoken
 from typing_extensions import TypedDict
@@ -252,7 +253,22 @@ def patch_model(patch: str) -> str:
     except Exception as e:
         return f"Error modifying the model: {str(e)}"
 
-def check_for_nonline
+def check_for_nonlinearity(code: str) -> bool:
+    """Check if the given code introduces nonlinearity into the model."""
+    # This is a basic implementation and may need to be expanded
+    # to cover all possible cases of nonlinearity
+    nonlinear_patterns = [
+        r'\w+\s*\*\s*\w+',  # Multiplication of variables
+        r'\w+\s*/\s*\w+',  # Division by variables
+        r'exp\(', r'log\(', r'sqrt\(',  # Exponential, logarithmic, and square root functions
+        r'abs\(',  # Absolute value function
+        r'\w+\s*\*\*\s*\d+',  # Power functions (e.g., x**2)
+    ]
+    
+    for pattern in nonlinear_patterns:
+        if re.search(pattern, code):
+            return True
+    return False
 
 
 # Tool to write the model code
